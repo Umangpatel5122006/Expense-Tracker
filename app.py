@@ -1,6 +1,19 @@
 from flask import Flask, render_template
 
+from database.db import get_db, init_db, seed_db
+
 app = Flask(__name__)
+
+
+# ------------------------------------------------------------------ #
+# Database bootstrap — runs once at import time                       #
+# ------------------------------------------------------------------ #
+# Ensure the schema exists and the demo data is in place before any
+# route is hit. The app context is required for any future helpers
+# that may rely on `current_app`; harmless for the current implementation.
+with app.app_context():
+    init_db()
+    seed_db()
 
 
 # ------------------------------------------------------------------ #
