@@ -2,7 +2,7 @@ import os
 import sqlite3
 
 from flask import Flask, redirect, render_template, request, session, url_for
-from werkzeug.security import generate_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from database.db import get_db, init_db, seed_db
 
@@ -35,6 +35,11 @@ def landing():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
+    # Already signed in — bounce to landing rather than show a form for
+    # an active session.
+    if session.get("user_id"):
+        return redirect(url_for("landing"))
+
     if request.method == "GET":
         return render_template("register.html")
 
@@ -87,9 +92,47 @@ def register():
     return redirect(url_for("landing"))
 
 
-@app.route("/login")
+@app.route("/login", methods=["GET", "POST"])
 def login():
-    return render_template("login.html")
+    # Already signed in — bounce to landing rather than show a form for
+    # an active session.
+    if session.get("user_id"):
+        return redirect(url_for("landing"))
+
+    if request.method == "GET":
+        return render_template("login.html")
+
+    # POST ---------------------------------------------------------------
+    email = (request.form.get("email") or "").strip().lower()
+    password = request.form.get("password") or ""
+
+    def fail(msg):
+        # On validation/auth failure: re-render with the error and preserve
+        # the email the user typed (never the password). Same error for
+        # "no such email" and "wrong password" to avoid leaking which
+        # accounts are registered.
+        return render_template("login.html", error=msg, email=email), 200
+
+    # --- empty input short-circuits before any DB lookup ----------------
+    if not email or not password:
+        return fail("Please enter both email and password.")
+
+    # --- look up user by email ------------------------------------------
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT id, password_hash FROM users WHERE email = ?",
+            (email,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if row is None or not check_password_hash(row["password_hash"], password):
+        return fail("Invalid email or password.")
+
+    # --- success --------------------------------------------------------
+    session["user_id"] = row["id"]
+    return redirect(url_for("landing"))
 
 
 @app.route("/terms")
@@ -108,7 +151,8 @@ def privacy():
 
 @app.route("/logout")
 def logout():
-    return "Logout — coming in Step 3"
+    session.clear()
+    return redirect(url_for("landing"))
 
 
 @app.route("/profile")
