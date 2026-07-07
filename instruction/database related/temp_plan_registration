@@ -1,0 +1,178 @@
+# Implementation Plan: Registration Feature
+
+---
+
+## What we have right now
+
+Looking at `app.py`, the register route is a stub:
+```
+GET /register → just renders register.html
+POST /register → doesn't exist yet
+```
+
+No session, no secret key, no validation, no database insertion.
+
+---
+
+## What needs to change
+
+### 1. `app.py` — 5 changes needed
+
+**① Add missing imports**
+
+Currently only imports `render_template`. Need to add:
+- `request` — to read form data (name, email, password)
+- `redirect` — to redirect after successful registration
+- `url_for` — to build redirect URL to landing page
+- `session` — to log user in after registration
+- `sqlite3` — to catch `IntegrityError` on duplicate email
+- `generate_password_hash` from `werkzeug.security` — to hash password
+
+**② Set `app.secret_key`**
+
+Flask `session` won't work without it — throws `RuntimeError`. Must be set immediately after `app = Flask(__name__)`. Read from environment variable, fall back to dev default with a comment.
+
+**③ Convert `register` route from GET-only to GET+POST**
+
+Currently:
+```
+@app.route("/register")        ← only GET
+def register():
+    return render_template(...)
+```
+
+Needs to become:
+```
+@app.route("/register", methods=["GET", "POST"])   ← both
+def register():
+    if GET → show empty form
+    if POST → validate → insert → redirect
+```
+
+**④ Build the POST handler logic — in this exact order:**
+
+```
+Step A — Read form fields
+         name, email, password from request.form
+
+Step B — Validate (server-side, in this order)
+         1. name → strip → non-empty → max 100 chars
+         2. email → strip → lowercase → contains exactly one @
+                  → both sides of @ non-empty → max 254 chars
+         3. password → min 8 characters
+         → on any failure → re-render form with error + preserve name/email
+
+Step C — Hash the password
+         generate_password_hash(password)
+         → never store or log plaintext
+
+Step D — Insert into database
+         get_db() → parameterised INSERT into users table
+         → catch IntegrityError (duplicate email)
+         → on duplicate → re-render form with friendly error
+
+Step E — Set session
+         session["user_id"] = newly inserted user id
+
+Step F — Redirect
+         redirect(url_for("landing")) → HTTP 302
+```
+
+**⑤ Error handling — two separate failure paths**
+
+```
+Validation failure:
+  → re-render register.html
+  → pass error= message
+  → pass name= and email= back (NOT password)
+  → return HTTP 200
+
+Duplicate email (IntegrityError):
+  → catch the exception before it becomes a 500
+  → re-render register.html
+  → pass error= "An account with that email already exists."
+  → return HTTP 200
+```
+
+---
+
+### 2. `templates/register.html` — verify only, no edits
+
+Before implementation, confirm these 3 things are already in place:
+- Extends `base.html`
+- Form `action="/register"` and `method="POST"`
+- Template already uses `{{ error }}` block and `{{ name }}`, `{{ email }}` variables
+
+If any are missing — fix them. No new styles, no new elements needed.
+
+---
+
+## Order of implementation
+
+```
+1. Add secret_key to app.py
+        ↓
+2. Add all missing imports to app.py
+        ↓
+3. Verify register.html has correct form structure
+        ↓
+4. Add methods=["GET","POST"] to register route
+        ↓
+5. Add GET branch (just render empty form)
+        ↓
+6. Add POST branch:
+     → read fields
+     → validate name
+     → validate email
+     → validate password
+     → hash password
+     → insert with get_db()
+     → catch IntegrityError
+     → set session
+     → redirect
+```
+
+---
+
+## Things to NOT touch
+
+```
+✗ seed_db()          — must not be modified
+✗ init_db()          — must not be modified
+✗ DB_PATH            — must not be changed
+✗ CATEGORIES         — must not be changed
+✗ demo user data     — must remain intact
+✗ any other routes   — login, landing, etc. untouched
+✗ no new .py files   — no test scripts, no seed scripts
+✗ no new pip packages
+```
+
+---
+
+## How to verify it worked (from spec)
+
+```
+✓ GET /register → empty form, no error shown
+✓ POST valid data → new row in users table → redirect to /
+✓ password_hash in DB starts with pbkdf2: or scrypt: (never plaintext)
+✓ session["user_id"] set after success
+✓ duplicate email → HTTP 200 + friendly error (not 500)
+✓ short password → HTTP 200 + error
+✓ empty name → HTTP 200 + error
+✓ email without @ → HTTP 200 + error
+✓ failed POST → name/email pre-filled, password empty
+✓ app still starts on port 5001
+✓ demo@spendly.com still exists in DB
+```
+
+---
+
+## Risk areas to watch
+
+| Risk | Why | How to handle |
+|---|---|---|
+| 500 on duplicate email | IntegrityError uncaught | Wrap INSERT in try/except |
+| Session not working | Missing secret_key | Set it before any route |
+| Password in form prefill | Security issue | Never pass password back to template |
+| SQL injection | String formatting in query | Only `?` placeholders |
+| demo user deleted | seed_db modified | Don't touch seed_db at all |
