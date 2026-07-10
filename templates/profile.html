@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}Your profile — Spendly{% endblock %}
+
+{% block content %}
+
+<section class="profile-page">
+    <div class="profile-inner">
+
+        <div class="profile-header">
+            <div class="profile-eyebrow">● Signed in as {{ user["email"] }}</div>
+            <h1 class="profile-title">{{ user["name"] }}</h1>
+            <p class="profile-subtitle">Manage your account and view your spending summary.</p>
+        </div>
+
+        <div class="profile-section">
+            <h2 class="profile-section-title">Account</h2>
+            <div class="profile-card">
+                <div class="profile-row">
+                    <span class="profile-row-label">Name</span>
+                    <span class="profile-row-value">{{ user["name"] }}</span>
+                </div>
+                <div class="profile-row">
+                    <span class="profile-row-label">Email</span>
+                    <span class="profile-row-value">{{ user["email"] }}</span>
+                </div>
+                <div class="profile-row">
+                    <span class="profile-row-label">Member since</span>
+                    <span class="profile-row-value">{{ member_since }}</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="profile-section">
+            <h2 class="profile-section-title">Activity</h2>
+            <div class="mock-stats">
+                <div class="mock-stat">
+                    <span class="mock-stat-label">Total expenses</span>
+                    <span class="mock-stat-value">{{ expense_count }}</span>
+                    <span class="mock-stat-meta">all time</span>
+                </div>
+                <div class="mock-stat">
+                    <span class="mock-stat-label">Total spent</span>
+                    <span class="mock-stat-value">₹{{ "{:,.2f}".format(total_spent) }}</span>
+                    <span class="mock-stat-meta">all time</span>
+                </div>
+                <div class="mock-stat">
+                    <span class="mock-stat-label">Top category</span>
+                    <span class="mock-stat-value">{{ top_category }}</span>
+                    <span class="mock-stat-meta">by total spend</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="profile-section">
+            <p class="profile-note">
+                Coming soon: edit your name, email, and password.
+            </p>
+            <div class="profile-actions">
+                <button type="button" class="btn-primary" disabled
+                        aria-disabled="true" title="Available in a later step">
+                    View expenses
+                </button>
+            </div>
+        </div>
+
+    </div>
+</section>
+
+{% endblock %}

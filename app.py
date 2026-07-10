@@ -1,5 +1,6 @@
 import os
 import sqlite3
+from datetime import datetime
 
 from flask import Flask, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -157,7 +158,66 @@ def logout():
 
 @app.route("/profile")
 def profile():
-    return "Profile page — coming in Step 4"
+    # 1. Auth gate — no DB work if not signed in.
+    user_id = session.get("user_id")
+    if user_id is None:
+        return redirect(url_for("login"))
+
+    conn = get_db()
+    try:
+        # 2. User row by id (parameterised).
+        user = conn.execute(
+            "SELECT id, name, email, created_at FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+
+        # 3. Stale session — clear and bounce to login (no 500).
+        if user is None:
+            session.clear()
+            return redirect(url_for("login"))
+
+        # 4. Activity aggregates: count + total spent (one query).
+        totals_row = conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(amount), 0) "
+            "FROM expenses WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        expense_count = totals_row[0]
+        total_spent = totals_row[1]
+
+        # 5. Top category — highest sum first, ties broken alphabetically.
+        top_row = conn.execute(
+            "SELECT category, SUM(amount) AS total "
+            "FROM expenses WHERE user_id = ? "
+            "GROUP BY category "
+            "ORDER BY total DESC, category ASC "
+            "LIMIT 1",
+            (user_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    # 6. Cross-platform date format: "9 July 2026" (no leading zero).
+    #    %-d fails on Windows and #d fails on Unix; using %d + lstrip("0")
+    #    works on every platform.
+    member_since = (
+        datetime.strptime(user["created_at"], "%Y-%m-%d %H:%M:%S")
+        .strftime("%d %B %Y")
+        .lstrip("0")
+    )
+
+    # 7. Top category as a display string ("—" when the user has none).
+    top_category = top_row["category"] if top_row is not None else "—"
+
+    # 8. Render.
+    return render_template(
+        "profile.html",
+        user=user,
+        member_since=member_since,
+        expense_count=expense_count,
+        total_spent=total_spent,
+        top_category=top_category,
+    )
 
 
 @app.route("/expenses/add")
