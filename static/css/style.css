@@ -894,3 +894,172 @@ a { color: inherit; text-decoration: none; }
     }
     .profile-row-value { text-align: left; }
 }
+
+/* ------------------------------------------------------------------ */
+/* Recent expenses + category breakdown (Step 5)                      */
+/* ------------------------------------------------------------------ */
+
+.expense-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.92rem;
+}
+
+.expense-table th,
+.expense-table td {
+    padding: 0.7rem 0.5rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border-soft);
+    vertical-align: top;
+}
+
+.expense-table th {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--ink-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--border);
+}
+
+.expense-table td.amount,
+.expense-table th.amount {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.expense-table tbody tr:last-child td { border-bottom: none; }
+
+.profile-empty {
+    font-size: 0.9rem;
+    color: var(--ink-muted);
+    text-align: center;
+    padding: 1.5rem 0;
+    margin: 0;
+}
+
+.category-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    align-items: baseline;
+    gap: 1rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--border-soft);
+}
+
+.category-row:last-child { border-bottom: none; }
+
+.category-name {
+    font-size: 0.95rem;
+    color: var(--ink);
+    font-weight: 500;
+}
+
+.category-pct {
+    font-size: 0.85rem;
+    color: var(--ink-muted);
+    font-variant-numeric: tabular-nums;
+    min-width: 2.5rem;
+    text-align: right;
+}
+
+.category-amount {
+    font-size: 0.95rem;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+    min-width: 6rem;
+    text-align: right;
+}
+
+.profile-section-meta {
+    display: inline-block;
+    margin-left: 0.6rem;
+    font-family: var(--font-body);
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--ink-muted);
+    text-transform: none;
+    letter-spacing: 0;
+    vertical-align: middle;
+}
+
+/* ------------------------------------------------------------------ */
+/* Category distribution chart (Step 6)                               */
+/* ------------------------------------------------------------------ */
+
+.category-chart {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;             /* 2px-on-8px track spacing equivalent */
+}
+
+.chart-row {
+    display: grid;
+    grid-template-columns: 7rem 1fr 2.5rem;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 0.35rem 0;
+    border-radius: var(--radius-sm);
+    cursor: default;
+    transition: background-color 0.15s ease;
+    outline: none;
+}
+
+.chart-row:hover,
+.chart-row:focus-visible {
+    background-color: var(--paper);
+}
+
+.chart-row:focus-visible {
+    box-shadow: 0 0 0 2px var(--accent);
+}
+
+.chart-row-label {
+    font-size: 0.92rem;
+    color: var(--ink);
+    font-weight: 500;
+}
+
+.chart-row-pct {
+    font-size: 0.85rem;
+    color: var(--ink-muted);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.chart-bar {
+    width: 100%;
+    height: 8px;
+    display: block;
+}
+
+.chart-bar-track {
+    fill: var(--border-soft);
+}
+
+.chart-bar-fill {
+    fill: var(--border);   /* default: muted gray for non-top rows */
+}
+
+.chart-row-top .chart-bar-fill {
+    fill: var(--accent);   /* emphasis: top category in dark green */
+}
+
+.chart-tooltip {
+    position: absolute;
+    z-index: 50;
+    background: var(--ink);
+    color: var(--paper);
+    font-size: 0.78rem;
+    font-weight: 500;
+    padding: 0.4rem 0.7rem;
+    border-radius: var(--radius-sm);
+    pointer-events: none;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+    white-space: nowrap;
+}
+
+.chart-tooltip[hidden] {
+    display: none;
+}
