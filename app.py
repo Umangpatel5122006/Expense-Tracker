@@ -6,6 +6,12 @@ from flask import Flask, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from database.db import get_db, init_db, seed_db
+from database.queries import (
+    get_category_breakdown,
+    get_recent_transactions,
+    get_summary_stats,
+    get_user_by_id,
+)
 
 app = Flask(__name__)
 # Flask `session` requires a secret_key. Read from the environment so a
@@ -163,60 +169,44 @@ def profile():
     if user_id is None:
         return redirect(url_for("login"))
 
+    # 2. One connection, shared by every helper. The route owns open/close;
+    #    helpers in database.queries never call get_db() or conn.close().
     conn = get_db()
     try:
-        # 2. User row by id (parameterised).
-        user = conn.execute(
-            "SELECT id, name, email, created_at FROM users WHERE id = ?",
-            (user_id,),
-        ).fetchone()
+        user = get_user_by_id(conn, user_id)
 
         # 3. Stale session — clear and bounce to login (no 500).
         if user is None:
             session.clear()
             return redirect(url_for("login"))
 
-        # 4. Activity aggregates: count + total spent (one query).
-        totals_row = conn.execute(
-            "SELECT COUNT(*), COALESCE(SUM(amount), 0) "
-            "FROM expenses WHERE user_id = ?",
-            (user_id,),
-        ).fetchone()
-        expense_count = totals_row[0]
-        total_spent = totals_row[1]
-
-        # 5. Top category — highest sum first, ties broken alphabetically.
-        top_row = conn.execute(
-            "SELECT category, SUM(amount) AS total "
-            "FROM expenses WHERE user_id = ? "
-            "GROUP BY category "
-            "ORDER BY total DESC, category ASC "
-            "LIMIT 1",
-            (user_id,),
-        ).fetchone()
+        stats = get_summary_stats(conn, user_id)
+        transactions = get_recent_transactions(conn, user_id)   # limit=10 default
+        categories = get_category_breakdown(conn, user_id)
     finally:
         conn.close()
 
-    # 6. Cross-platform date format: "9 July 2026" (no leading zero).
+    # 4. Cross-platform date format: "9 July 2026" (no leading zero).
     #    %-d fails on Windows and #d fails on Unix; using %d + lstrip("0")
     #    works on every platform.
     member_since = (
-        datetime.strptime(user["created_at"], "%Y-%m-%d %H:%M:%S")
+        datetime.strptime(user["member_since"], "%Y-%m-%d %H:%M:%S")
         .strftime("%d %B %Y")
         .lstrip("0")
     )
 
-    # 7. Top category as a display string ("—" when the user has none).
-    top_category = top_row["category"] if top_row is not None else "—"
-
-    # 8. Render.
+    # 5. Render. The template uses user["name"] / user["email"] for the
+    #    account header; recent_transactions and category_breakdown feed
+    #    the new "Recent expenses" and "Spending by category" sections.
     return render_template(
         "profile.html",
-        user=user,
+        user={"name": user["name"], "email": user["email"]},
         member_since=member_since,
-        expense_count=expense_count,
-        total_spent=total_spent,
-        top_category=top_category,
+        expense_count=stats["transaction_count"],
+        total_spent=stats["total_spent"],
+        top_category=stats["top_category"],
+        recent_transactions=transactions,
+        category_breakdown=categories,
     )
 
 

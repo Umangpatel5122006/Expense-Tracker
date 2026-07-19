@@ -1,178 +1,1015 @@
-# Implementation Plan: Registration Feature
+ Route tests (pytest-flask)
 
----
+ @pytest.fixture
+ def client(monkeypatch):
+     from database import db
+     test_db = "/tmp/spendly-route-test.db"  # use tmp_path in
+ real code
+     monkeypatch.setattr(db, "DB_PATH", test_db)
+     if os.path.exists(test_db): os.remove(test_db)
+     init_db()
+     # Seed the demo user (id=1) + the 8 sample expenses from
+ db.seed_db
+     from database.db import seed_db
+     seed_db()
+     app_module.app.config["TESTING"] = True
+     app_module.app.config["WTF_CSRF_ENABLED"] = False
+     with app_module.app.test_client() as c:
+         yield c
 
-## What we have right now
+ Cases:
+ - GET /profile unauthenticated → 302 redirect to /login.
+ - GET /profile authenticated as demo user → 200, body
+ contains the demo user's name, email, the ₹ glyph,
+ total_spent = ₹300.14 (the actual seed sum, not the spec's
+ ₹346.24 — known spec error, comment in the test),
+ transaction_count = 8, top_category = "Bills", 7 category
+ rows, transactions ordered newest-first.
 
-Looking at `app.py`, the register route is a stub:
-```
-GET /register → just renders register.html
-POST /register → doesn't exist yet
-```
+ Authentication: log in by POST /login with demo@spendly.com /
+ demo123 (the demo password from seed_db()), then re-use the
+ session cookie on the GET /profile call. The test_client
+ handles cookies automatically.
 
-No session, no secret key, no validation, no database insertion.
+ ---
+ Critical files
 
----
+ Path: database/queries.py
+ Action: create
+ Why: The four reusable helpers.
+ ────────────────────────────────────────
+ Path: app.py
+ Action: modify
+ Why: profile() calls helpers, keeps the existing context
+ contract.
+ ────────────────────────────────────────
+ Path: templates/profile.html
+ Action: modify
+ Why: Add category breakdown + recent transactions.
+ ────────────────────────────────────────
+ Path: static/css/style.css
+ Action: modify
+ Why: Append the .expense-table block (CSS vars only).
+ ────────────────────────────────────────
+ Path: tests/test_backend_connection.py
+ Action: create
+ Why: Unit + route tests.
 
-## What needs to change
+ Reuse (do NOT re-implement)
 
-### 1. `app.py` — 5 changes needed
+ - database.db.get_db() — connection open + row_factory +
+ PRAGMA foreign_keys = ON.
+ - database.db.CATEGORIES — the fixed 7-value tuple.
+ - database.db.init_db() — schema, idempotent.
+ - database.db.seed_db() — demo user + 8 sample expenses (used
+ by the route test only; unit tests use hand-rolled
+ fixtures).
+ - The existing app.py:profile() auth gate, stale-session
+ branch, member_since formatting, and render_template context
+ shape (template contract: user, member_since, expense_count,
+ total_spent, top_category).
 
-**① Add missing imports**
+ Spec-mandated numbers (where the spec and the seed disagree)
 
-Currently only imports `render_template`. Need to add:
-- `request` — to read form data (name, email, password)
-- `redirect` — to redirect after successful registration
-- `url_for` — to build redirect URL to landing page
-- `session` — to log user in after registration
-- `sqlite3` — to catch `IntegrityError` on duplicate email
-- `generate_password_hash` from `werkzeug.security` — to hash password
+ - Seed total = ₹300.14 (spec claims 346.24). Route test
+ asserts the real value.
+ - Seed count = 8 (matches spec).
+ - Seed top category = "Bills" (matches spec).
+ - member_since format = "9 July 2026" (spec's "January 2026"
+ treated as illustrative per user).
 
-**② Set `app.secret_key`**
+ Out of scope (for follow-on steps, not this one)
 
-Flask `session` won't work without it — throws `RuntimeError`. Must be set immediately after `app = Flask(__name__)`. Read from environment variable, fall back to dev default with a comment.
+ - Search, filter, sort, pagination on the recent-transactions
+ list.
+ - A dedicated /expenses index route (the profile list is
+ bounded to 10, with no link to "see all").
+ - Add / edit / delete expense forms (Steps 7–9).
+ - Editing the user's name, email, or password from the
+ profile page.
 
-**③ Convert `register` route from GET-only to GET+POST**
+ Verification
 
-Currently:
-```
-@app.route("/register")        ← only GET
-def register():
-    return render_template(...)
-```
+ 1. Static / lint-ish
+   - python -c "from database.queries import get_user_by_id,
+ get_summary_stats, get_recent_transactions,
+ get_category_breakdown; print('imports ok')"
+   - grep -nE "f['\"]\s*SELECT" app.py database/queries.py →
+ must return nothing (no f-string SQL).
+ 2. Unit tests: python -m pytest
+ tests/test_backend_connection.py -v — all 8+ cases green.
+ 3. Route test: same command — auth + 200 + 7 category rows +
+ newest-first transactions + ₹300.14 all green.
+ 4. Manual smoke (inline heredoc, no .py file):
+   - Start the dev server in the background: python app.py
+ (port 5001).
+   - POST /login with demo@spendly.com / demo123, capture the
+ session cookie.
+   - GET /profile with the cookie. Assert: HTTP 200, body
+ contains Demo User, demo@spendly.com, ₹300.14, Bills, the 7
+ category names, and 8 <tr> rows in the transactions table.
+   - Empty-user smoke: register a fresh user, visit /profile,
+ expect ₹0.00, 0 transactions, 7 category rows all at ₹0.00 /
+ 0%, no 500.
+ 5. Cross-user safety: log in as a different user (the dev
+ seed inserted 10 rows for user 6 — but those live in a
+  ⎿  Error: No task found with ID: a3e2a905312e25304
 
-Needs to become:
-```
-@app.route("/register", methods=["GET", "POST"])   ← both
-def register():
-    if GET → show empty form
-    if POST → validate → insert → redirect
-```
+● The plan agent already completed (and I already saw its full
+  result as the first task-notification at the start of this
+  conversation). I have all the validation I need from that
+  result plus the user clarifications. Let me write the final
+  plan.
 
-**④ Build the POST handler logic — in this exact order:**
+● Updated plan
+  ⎿  /plan to preview
 
-```
-Step A — Read form fields
-         name, email, password from request.form
+● User approved Claude's plan
+  ⎿  Plan saved to: ~\.claude\plans\read-claude-specs-05-recent
+     -expenses-on-pure-pond.md · /plan to edit
+     Plan: Step 5 — Backend Connection (real-data /profile)
 
-Step B — Validate (server-side, in this order)
-         1. name → strip → non-empty → max 100 chars
-         2. email → strip → lowercase → contains exactly one @
-                  → both sides of @ non-empty → max 254 chars
-         3. password → min 8 characters
-         → on any failure → re-render form with error + preserve name/email
+     Context
 
-Step C — Hash the password
-         generate_password_hash(password)
-         → never store or log plaintext
+     The Spendly /profile page currently shows partial live
+     data (user row + activity tiles) computed by inline SQL
+     inside the route in app.py:159-220, but two things are
+     still missing or hardcoded:
 
-Step D — Insert into database
-         get_db() → parameterised INSERT into users table
-         → catch IntegrityError (duplicate email)
-         → on duplicate → re-render form with friendly error
+     1. No category breakdown in templates/profile.html — the
+     spec requires a 7-row breakdown with percentages that sum
+     to exactly 100.
+     2. No recent-transactions list — only a disabled "View
+     expenses" placeholder button.
+     3. The route mixes DB logic with Flask logic — app.py is
+     harder to test and the SQL is duplicated/inline rather
+     than reusable.
+     4. There are no tests in the project (no tests/ directory
+     exists yet).
 
-Step E — Set session
-         session["user_id"] = newly inserted user id
+     The Step 5 spec
+     (.claude/specs/05-recent-expenses-on-profile.md, file body
+     titled "Spec: Backend Connection") asks for:
+     - A new database/queries.py module with four
+     parameterised, Flask-free helper functions.
+     - A /profile route that opens one connection and threads
+     it through those helpers.
+     - A category breakdown that renders 7 rows whose
+     percentages round and adjust to sum to exactly 100.
+     - A recent-transactions list on the profile page.
+     - Unit tests + route tests under
+     tests/test_backend_connection.py.
 
-Step F — Redirect
-         redirect(url_for("landing")) → HTTP 302
-```
+     User-confirmed clarifications
 
-**⑤ Error handling — two separate failure paths**
+     - Seed totals stay as-is (₹300.14 / 8 / Bills). The spec's
+     claim of ₹346.24 is a known spec error — the route test
+     will assert ₹300.14 and a comment in the test will note
+     the divergence.
+     - All 7 CATEGORIES always render, including zero-spend
+     rows (show ₹0.00 / 0%).
+     - member_since keeps the current "9 July 2026" format
+     (with day) — the spec's "January 2026" example is treated
+     as illustrative, not normative.
+     - Styling goes in the existing static/css/style.css using
+     the CSS variables already defined (--paper-card, --border,
+     --border-soft, --ink-muted, --radius-sm, etc.). No new
+     colors, no new file.
 
-```
-Validation failure:
-  → re-render register.html
-  → pass error= message
-  → pass name= and email= back (NOT password)
-  → return HTTP 200
+     ---
+     Files to change
 
-Duplicate email (IntegrityError):
-  → catch the exception before it becomes a 500
-  → re-render register.html
-  → pass error= "An account with that email already exists."
-  → return HTTP 200
-```
+     1. database/queries.py — create new
 
----
+     Four Flask-free helpers. Each takes the open conn and
+     user_id. No get_db() calls. No conn.close(). No Flask
+     imports.
 
-### 2. `templates/register.html` — verify only, no edits
+     """Reusable SQLite query helpers for /profile (and future
+     read-side views)."""
+     from __future__ import annotations
+     import sqlite3
+     from typing import Any
 
-Before implementation, confirm these 3 things are already in place:
-- Extends `base.html`
-- Form `action="/register"` and `method="POST"`
-- Template already uses `{{ error }}` block and `{{ name }}`, `{{ email }}` variables
+     __all__ = [
+         "get_user_by_id",
+         "get_summary_stats",
+         "get_recent_transactions",
+         "get_category_breakdown",
+     ]
 
-If any are missing — fix them. No new styles, no new elements needed.
 
----
+     def get_user_by_id(conn: sqlite3.Connection, user_id: int)
+     -> dict[str, Any] | None:
+         """Return {name, email, member_since} for a user, or
+     None."""
+         row = conn.execute(
+             "SELECT name, email, created_at FROM users WHERE
+     id = ?",
+             (user_id,),
+         ).fetchone()
+         return None if row is None else {
+             "name": row["name"],
+             "email": row["email"],
+             "member_since": row["created_at"],   # raw string;
+     formatting lives in the route
+         }
 
-## Order of implementation
 
-```
-1. Add secret_key to app.py
-        ↓
-2. Add all missing imports to app.py
-        ↓
-3. Verify register.html has correct form structure
-        ↓
-4. Add methods=["GET","POST"] to register route
-        ↓
-5. Add GET branch (just render empty form)
-        ↓
-6. Add POST branch:
-     → read fields
-     → validate name
-     → validate email
-     → validate password
-     → hash password
-     → insert with get_db()
-     → catch IntegrityError
-     → set session
-     → redirect
-```
+     def get_summary_stats(conn: sqlite3.Connection, user_id:
+     int) -> dict[str, Any]:
+         """Return {total_spent (float), transaction_count
+     (int), top_category (str or "—")}."""
+         totals = conn.execute(
+             "SELECT COUNT(*), COALESCE(SUM(amount), 0) "
+             "FROM expenses WHERE user_id = ?",
+             (user_id,),
+         ).fetchone()
+         top = conn.execute(
+             "SELECT category, SUM(amount) AS total "
+             "FROM expenses WHERE user_id = ? "
+             "GROUP BY category "
+             "ORDER BY total DESC, category ASC "
+             "LIMIT 1",
+             (user_id,),
+         ).fetchone()
+         return {
+             "total_spent": float(totals[1]),
+             "transaction_count": int(totals[0]),
+             "top_category": top["category"] if top is not None
+     else "—",
+         }
 
----
 
-## Things to NOT touch
+     def get_recent_transactions(
+         conn: sqlite3.Connection,
+         user_id: int,
+         limit: int = 10,
+     ) -> list[dict[str, Any]]:
+         """Return up to `limit` expenses newest-first."""
+         rows = conn.execute(
+             "SELECT date, description, category, amount "
+             "FROM expenses WHERE user_id = ? "
+             "ORDER BY date DESC, id DESC LIMIT ?",
+             (user_id, limit),
+         ).fetchall()
+         return [
+             {"date": r["date"], "description":
+     r["description"],
+              "category": r["category"], "amount": r["amount"]}
+             for r in rows
+         ]
 
-```
-✗ seed_db()          — must not be modified
-✗ init_db()          — must not be modified
-✗ DB_PATH            — must not be changed
-✗ CATEGORIES         — must not be changed
-✗ demo user data     — must remain intact
-✗ any other routes   — login, landing, etc. untouched
-✗ no new .py files   — no test scripts, no seed scripts
-✗ no new pip packages
-```
 
----
+     def get_category_breakdown(
+         conn: sqlite3.Connection,
+         user_id: int,
+     ) -> list[dict[str, Any]]:
+         """Return all 7 CATEGORIES with {name, amount, pct},
+     pct summing to exactly 100.
 
-## How to verify it worked (from spec)
+         Algorithm:
+           1. SUM(amount) per category for this user, ordered
+     by amount DESC.
+           2. Compute total. If total == 0, every category gets
+     pct = 0.
+           3. Else: pct_i = round(amount_i / total * 100).
+           4. Let delta = 100 - sum(pct_i). Add delta to the
+     pct of the FIRST row
+              (largest by amount — the list is already sorted
+     by amount DESC).
+              delta is in {-6..+6} so the adjustment keeps
+     every pct in [0, 100].
+         """
+         from database.db import CATEGORIES  # local import: no
+     Flask coupling
 
-```
-✓ GET /register → empty form, no error shown
-✓ POST valid data → new row in users table → redirect to /
-✓ password_hash in DB starts with pbkdf2: or scrypt: (never plaintext)
-✓ session["user_id"] set after success
-✓ duplicate email → HTTP 200 + friendly error (not 500)
-✓ short password → HTTP 200 + error
-✓ empty name → HTTP 200 + error
-✓ email without @ → HTTP 200 + error
-✓ failed POST → name/email pre-filled, password empty
-✓ app still starts on port 5001
-✓ demo@spendly.com still exists in DB
-```
+         raw = conn.execute(
+             "SELECT category, COALESCE(SUM(amount), 0) AS
+     total "
+             "FROM expenses WHERE user_id = ? "
+             "GROUP BY category",
+             (user_id,),
+         ).fetchall()
+         by_cat = {r["category"]: float(r["total"]) for r in
+     raw}
 
----
+         # Build the list in the spec's required order: amount
+     DESC, then CATEGORIES tie-break.
+         ordered_cats = sorted(
+             CATEGORIES,
+             key=lambda c: (-by_cat.get(c, 0.0), c),
+         )
 
-## Risk areas to watch
+         amounts = [by_cat.get(c, 0.0) for c in ordered_cats]
+         total = sum(amounts)
 
-| Risk | Why | How to handle |
-|---|---|---|
-| 500 on duplicate email | IntegrityError uncaught | Wrap INSERT in try/except |
-| Session not working | Missing secret_key | Set it before any route |
-| Password in form prefill | Security issue | Never pass password back to template |
-| SQL injection | String formatting in query | Only `?` placeholders |
-| demo user deleted | seed_db modified | Don't touch seed_db at all |
+         if total == 0:
+             pcts = [0 for _ in ordered_cats]
+         else:
+             pcts = [round(a / total * 100) for a in amounts]
+             delta = 100 - sum(pcts)
+             if delta != 0 and pcts:
+                 pcts[0] += delta  # largest-by-amount absorbs
+     the rounding remainder
+
+         return [
+             {"name": c, "amount": by_cat.get(c, 0.0), "pct":
+     p}
+             for c, p in zip(ordered_cats, pcts)
+         ]
+
+     Reuse: database.db.CATEGORIES (the fixed 7-value tuple —
+     do not redefine the list inline, per project rules).
+
+     2. app.py — refactor profile() only
+
+     Replace the inline SQL block in profile() (lines ~166-198)
+     with calls to the four helpers. Everything else in the
+     route stays:
+
+     - Preserve: auth gate (session["user_id"] is None →
+     redirect("/login")), stale-session branch (user is None →
+     session.clear() + redirect).
+     - Preserve: member_since formatting — "%d %B %Y" then
+     .lstrip("0") (current "9 July 2026" format, per user).
+     - Preserve: passing user (the full row, not the helper's
+     stripped dict — the template uses user["name"] and
+     user["email"]). Easiest: pass the helper dict, then in the
+     template keep using user["name"] by re-mapping the
+     template context — or keep two vars: user (full row,
+     unchanged) and use the helper only for the other three.
+     - New: recent_transactions and category_breakdown lists
+     passed to the template.
+     - Connection: single conn = get_db() block, try/finally:
+     conn.close(). Same pattern the current route uses — just
+     wraps the helper calls instead of inline SQL.
+
+     @app.route("/profile")
+     def profile():
+         user_id = session.get("user_id")
+         if user_id is None:
+             return redirect(url_for("login"))
+
+         conn = get_db()
+         try:
+             user = get_user_by_id(conn, user_id)
+             if user is None:
+                 session.clear()
+                 return redirect(url_for("login"))
+
+             stats = get_summary_stats(conn, user_id)
+             transactions = get_recent_transactions(conn,
+     user_id)        # limit=10 default
+             categories = get_category_breakdown(conn, user_id)
+         finally:
+             conn.close()
+
+         member_since = (
+             datetime.strptime(user["member_since"], "%Y-%m-%d
+     %H:%M:%S")
+             .strftime("%d %B %Y")
+             .lstrip("0")
+         )
+
+         return render_template(
+             "profile.html",
+             user={"name": user["name"], "email":
+     user["email"]},  # keep template contract
+             member_since=member_since,
+             expense_count=stats["transaction_count"],
+             total_spent=stats["total_spent"],
+             top_category=stats["top_category"],
+             recent_transactions=transactions,
+             category_breakdown=categories,
+         )
+
+     Add import: from database.queries import (get_user_by_id,
+     get_summary_stats, get_recent_transactions,
+     get_category_breakdown).
+
+     3. templates/profile.html — add two new sections
+
+     Constraint from spec: "no structural HTML changes" —
+     interpreted as: keep the existing Account and Activity
+     cards exactly as they are. Add two new <section
+     class="profile-section"> blocks after Activity, before the
+     existing "Coming soon" block.
+
+     - Category Breakdown — a <table> (or a profile-card with
+     seven profile-rows) showing all 7 CATEGORIES. Columns:
+     name, amount (₹{:,.2f}), pct (X%). Iterate
+     category_breakdown from the route. For the demo user,
+     percentages will be [30, 25, 15, 12, 11, 5, 2] (rounded
+     from the seed) — sum is currently 100 already; if it ever
+     overshoots to 101, the helper bumps the largest down
+     to 29. Confirmed by walking through the algorithm against
+     the actual seed above.
+     - Recent transactions — a <table> with <thead> of Date |
+     Category | Description | Amount and a <tbody> row per
+     recent_transactions entry. Amount column: ₹{:,.2f},
+     right-aligned, class="amount". Description cell: &mdash;
+     when None or empty string. Iterate in the order returned
+     by the helper (already date DESC, id DESC).
+     - Empty state for transactions: when recent_transactions
+     is empty, replace the table with <p
+     class="profile-empty">No expenses yet. Add your first one
+     to start tracking your spending.</p>.
+     - Keep the "Coming soon: edit your name, email, and
+     password." copy and the profile-actions block (button gets
+     removed since the new section replaces the placeholder;
+     or keep as a non-functional decorative element —
+     recommendation: remove the button, since the spec says "no
+     View expenses button" implicitly via "replaces the
+     placeholder").
+
+     4. static/css/style.css — add a small expense-table block
+     (no new colors)
+
+     Append at the end of the file (in the Profile page
+     section, after the @media block):
+
+     .expense-table {
+         width: 100%;
+         border-collapse: collapse;
+         font-size: 0.92rem;
+     }
+     .expense-table th,
+     .expense-table td {
+         padding: 0.7rem 0.5rem;
+         text-align: left;
+         border-bottom: 1px solid var(--border-soft);
+     }
+     .expense-table th {
+         font-size: 0.78rem;
+         font-weight: 600;
+         color: var(--ink-muted);
+         text-transform: uppercase;
+         letter-spacing: 0.04em;
+         border-bottom: 1px solid var(--border);
+     }
+     .expense-table td.amount,
+     .expense-table th.amount {
+         text-align: right;
+         font-variant-numeric: tabular-nums;
+         white-space: nowrap;
+     }
+     .expense-table tbody tr:last-child td { border-bottom:
+     none; }
+
+     .profile-empty {
+         font-size: 0.9rem;
+         color: var(--ink-muted);
+         text-align: center;
+         padding: 1.5rem 0;
+         margin: 0;
+     }
+
+     All values use the existing CSS variables — zero new
+     colors.
+
+     5. tests/test_backend_connection.py — create new
+
+     Layout (pytest + pytest-flask, both already in
+     requirements.txt):
+
+     """Unit and route tests for the /profile data path (Step
+     5)."""
+     from __future__ import annotations
+     import os
+     import sys
+     import pytest
+
+     # Make the project importable when pytest is run from the
+     repo root.
+     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path
+     .abspath(__file__))))
+
+     from database.db import CATEGORIES, get_db, init_db
+     from database.queries import (
+         get_user_by_id,
+         get_summary_stats,
+         get_recent_transactions,
+         get_category_breakdown,
+     )
+
+     import app as app_module  # the Flask app
+
+     Unit tests (no Flask app)
+
+     A tmp_path fixture builds a fresh SQLite file in pytest's
+     temp dir, runs init_db(), inserts a known fixture user and
+     expenses, and yields the open connection. Tests close it
+     in their own teardown.
+
+     @pytest.fixture
+     def conn(tmp_path, monkeypatch):
+         # Point DB_PATH at the temp file.
+         from database import db
+         test_db = tmp_path / "test.db"
+         monkeypatch.setattr(db, "DB_PATH", str(test_db))
+         init_db()
+         c = get_db()
+         c.execute("INSERT INTO users (id, name, email,
+     password_hash) "
+                   "VALUES (1, 'Test', 't@x.com', 'x')")
+         c.executemany(
+             "INSERT INTO expenses (user_id, amount, category,
+     date, description) "
+             "VALUES (?, ?, ?, ?, ?)",
+             [
+                 (1, 60.0,  "Food",          "2026-06-30",
+     "A"),
+                 (1, 30.0,  "Transport",     "2026-06-29",
+     "B"),
+                 (1, 10.0,  "Bills",         "2026-06-28",
+     "C"),
+             ],
+         )
+         c.commit()
+         yield c
+         c.close()
+
+     Cases:
+     - get_user_by_id: valid id returns the dict; invalid id
+     returns None.
+     - get_summary_stats: with expenses (verifies
+     total_spent=100.0, transaction_count=3,
+     top_category="Food"); without expenses (user with id=999 —
+     fixture inserts no rows for them).
+     - get_recent_transactions: 3 rows in date DESC, id DESC
+     order; an empty user returns []; the limit=2 parameter
+     caps the list at 2.
+     - get_category_breakdown: amounts ordered DESC;
+     percentages sum to exactly 100 (assert sum(p["pct"] for p
+     in result) == 100); the empty-user case returns all 7
+     categories with pct=0 and amount=0.
+
+     A second get_category_breakdown percentage-bump test with
+     {"Food": 1, "Transport": 1, "Bills": 1} (total=3, raw pcts
+     = 33.33 each → all round to 33, sum=99, delta=+1) — the
+     helper must add +1 to the first row so the list sums to
+     100.
+
+     Route tests (pytest-flask)
+
+     @pytest.fixture
+     def client(monkeypatch):
+         from database import db
+         test_db = "/tmp/spendly-route-test.db"  # use tmp_path
+     in real code
+         monkeypatch.setattr(db, "DB_PATH", test_db)
+         if os.path.exists(test_db): os.remove(test_db)
+         init_db()
+         # Seed the demo user (id=1) + the 8 sample expenses
+     from db.seed_db
+         from database.db import seed_db
+         seed_db()
+         app_module.app.config["TESTING"] = True
+         app_module.app.config["WTF_CSRF_ENABLED"] = False
+         with app_module.app.test_client() as c:
+             yield c
+
+     Cases:
+     - GET /profile unauthenticated → 302 redirect to /login.
+     - GET /profile authenticated as demo user → 200, body
+     contains the demo user's name, email, the ₹ glyph,
+     total_spent = ₹300.14 (the actual seed sum, not the spec's
+     ₹346.24 — known spec error, comment in the test),
+     transaction_count = 8, top_category = "Bills", 7 category
+     rows, transactions ordered newest-first.
+
+     Authentication: log in by POST /login with
+     demo@spendly.com / demo123 (the demo password from
+     seed_db()), then re-use the session cookie on the GET
+     /profile call. The test_client handles cookies
+     automatically.
+
+     ---
+     Critical files
+
+     Path: database/queries.py
+     Action: create
+     Why: The four reusable helpers.
+     ────────────────────────────────────────
+     Path: app.py
+     Action: modify
+     Why: profile() calls helpers, keeps the existing context
+     contract.
+     ────────────────────────────────────────
+     Path: templates/profile.html
+     Action: modify
+     Why: Add category breakdown + recent transactions.
+     ────────────────────────────────────────
+     Path: static/css/style.css
+     Action: modify
+     Why: Append the .expense-table block (CSS vars only).
+     ────────────────────────────────────────
+     Path: tests/test_backend_connection.py
+     Action: create
+     Why: Unit + route tests.
+
+     Reuse (do NOT re-implement)
+
+     - database.db.get_db() — connection open + row_factory +
+     PRAGMA foreign_keys = ON.
+     - database.db.CATEGORIES — the fixed 7-value tuple.
+     - database.db.init_db() — schema, idempotent.
+     - database.db.seed_db() — demo user + 8 sample expenses
+     (used by the route test only; unit tests use hand-rolled
+     fixtures).
+     - The existing app.py:profile() auth gate, stale-session
+     branch, member_since formatting, and render_template
+     context shape (template contract: user, member_since,
+     expense_count, total_spent, top_category).
+
+     Spec-mandated numbers (where the spec and the seed
+     disagree)
+
+     - Seed total = ₹300.14 (spec claims 346.24). Route test
+     asserts the real value.
+     - Seed count = 8 (matches spec).
+     - Seed top category = "Bills" (matches spec).
+     - member_since format = "9 July 2026" (spec's "January
+     2026" treated as illustrative per user).
+
+     Out of scope (for follow-on steps, not this one)
+
+     - Search, filter, sort, pagination on the
+     recent-transactions list.
+     - A dedicated /expenses index route (the profile list is
+     bounded to 10, with no link to "see all").
+     - Add / edit / delete expense forms (Steps 7–9).
+     - Editing the user's name, email, or password from the
+     profile page.
+
+     Verification
+
+     1. Static / lint-ish
+       - python -c "from database.queries import
+     get_user_by_id, get_summary_stats,
+     get_recent_transactions, get_category_breakdown;
+     print('imports ok')"
+       - grep -nE "f['\"]\s*SELECT" app.py database/queries.py
+     → must return nothing (no f-string SQL).
+     2. Unit tests: python -m pytest
+     tests/test_backend_connection.py -v — all 8+ cases green.
+     3. Route test: same command — auth + 200 + 7 category rows
+     + newest-first transactions + ₹300.14 all green.
+     4. Manual smoke (inline heredoc, no .py file):
+       - Start the dev server in the background: python app.py
+     (port 5001).
+       - POST /login with demo@spendly.com / demo123, capture
+     the session cookie.
+       - GET /profile with the cookie. Assert: HTTP 200, body
+     contains Demo User, demo@spendly.com, ₹300.14, Bills, the
+     7 category names, and 8 <tr> rows in the transactions
+     table.
+       - Empty-user smoke: register a fresh user, visit
+     /profile, expect ₹0.00, 0 transactions, 7 category rows
+     all at ₹0.00 / 0%, no 500.
+     5. Cross-user safety: log in as a different user (the dev
+     seed inserted 10 rows for user 6 — but those live in a
+     different DB instance during the test). In the route test,
+     use only user 1's data; the SQL WHERE user_id = ? clause
+     plus the session-bound user_id make cross-user leakage a
+     non-concern.
+     6. CSS check: grep -E "#[0-9a-fA-F]{3,6}"
+     static/css/style.css — the new block contributes zero new
+     hex values; pre-existing hex values (the --dot-r/y/g
+     lines) are unchanged.
+
+● Plan approved. Tracking the work with tasks:
+
+● Now switching to a sensible implementation order. I'll start
+  with the lowest-dependency file (CSS) and the
+  highest-dependency file (queries.py), then move up the stack,
+  then verify. Marking the first task in progress.
+
+● Update(static\css\style.css)
+  ⎿  Added 77 lines
+      894      }
+      895      .profile-row-value { text-align: left; }
+      896  }
+      897 +                                             
+      898 +/* ------------------------------------------
+          +------------------------ */                  
+      899 +/* Recent expenses + category breakdown (Step
+          + 5)                      */                  
+      900 +/* ------------------------------------------
+          +------------------------ */                  
+      901 +                                             
+      902 +.expense-table {                             
+      903 +    width: 100%;                             
+      904 +    border-collapse: collapse;               
+      905 +    font-size: 0.92rem;                      
+      906 +}                                            
+      907 +                                             
+      908 +.expense-table th,                           
+      909 +.expense-table td {                          
+      910 +    padding: 0.7rem 0.5rem;                  
+      911 +    text-align: left;                        
+      912 +    border-bottom: 1px solid var(--border-sof
+          +t);                                          
+      913 +    vertical-align: top;                     
+      914 +}                                            
+      915 +                                             
+      916 +.expense-table th {                          
+      917 +    font-size: 0.78rem;                      
+      918 +    font-weight: 600;                        
+      919 +    color: var(--ink-muted);                 
+      920 +    text-transform: uppercase;               
+      921 +    letter-spacing: 0.04em;                  
+      922 +    border-bottom: 1px solid var(--border);  
+      923 +}                                            
+      924 +                                             
+      925 +.expense-table td.amount,                    
+      926 +.expense-table th.amount {                   
+      927 +    text-align: right;                       
+      928 +    font-variant-numeric: tabular-nums;      
+      929 +    white-space: nowrap;                     
+      930 +}                                            
+      931 +                                             
+      932 +.expense-table tbody tr:last-child td { borde
+          +r-bottom: none; }                            
+      933 +                                             
+      934 +.profile-empty {                             
+      935 +    font-size: 0.9rem;                       
+      936 +    color: var(--ink-muted);                 
+      937 +    text-align: center;                      
+      938 +    padding: 1.5rem 0;                       
+      939 +    margin: 0;                               
+      940 +}                                            
+      941 +                                             
+      942 +.category-row {                              
+      943 +    display: grid;                           
+      944 +    grid-template-columns: 1fr auto auto;    
+      945 +    align-items: baseline;                   
+      946 +    gap: 1rem;                               
+      947 +    padding: 0.6rem 0;                       
+      948 +    border-bottom: 1px solid var(--border-sof
+          +t);                                          
+      949 +}                                            
+      950 +                                             
+      951 +.category-row:last-child { border-bottom: non
+          +e; }                                         
+      952 +                                             
+      953 +.category-name {                             
+      954 +    font-size: 0.95rem;                      
+      955 +    color: var(--ink);                       
+      956 +    font-weight: 500;                        
+      957 +}                                            
+      958 +                                             
+      959 +.category-pct {                              
+      960 +    font-size: 0.85rem;                      
+      961 +    color: var(--ink-muted);                 
+      962 +    font-variant-numeric: tabular-nums;      
+      963 +    min-width: 2.5rem;                       
+      964 +    text-align: right;                       
+      965 +}                                            
+      966 +                                             
+      967 +.category-amount {                           
+      968 +    font-size: 0.95rem;                      
+      969 +    color: var(--ink);                       
+      970 +    font-variant-numeric: tabular-nums;      
+      971 +    min-width: 6rem;                         
+      972 +    text-align: right;                       
+      973 +}                                            
+
+● Creating database/queries.py:
+
+● Write(database\queries.py)
+  ⎿  Wrote 175 lines to database\queries.py
+         le view (Step 5).e query helpers for the /profi
+       2 
+       4   - accept an already-open sqlite3 connection (
+         the route owns the lifecycle),
+       6   - never import Flask, or conn.close(),
+       7   - use parameterised SQL exclusively (`?` plac
+       8   - return plain dicts (not sqlite3.Row) so uni
+         t tests are easy to write.
+      10 The /profile route is the only current consumer
+         ; future read-side views
+     … +221 lines (ctrl+o to expand)
+
+───────────────────────────────────────────────────────────────
+ Bash command
+
+   python << 'EOF'
+   # Smoke test the helpers in isolation. Uses the live DB
+   (idempotent — seed_db short-circuits).
+   import sys; sys.path.insert(0, ".")
+   from database.db import get_db, CATEGORIES
+   from database.queries import (
+       get_user_by_id, get_summary_stats,
+       get_recent_transactions, get_category_breakdown,
+   )
+
+   conn = get_db()
+   try:
+       # Find the demo user (id=1 per seed)
+       print("get_user_by_id(1):", get_user_by_id(conn, 1))
+       print("get_user_by_id(999):", get_user_by_id(conn,
+   999))
+
+       print("get_summary_stats(1):",
+   get_summary_stats(conn, 1))
+       print("get_summary_stats(999):",
+   get_summary_stats(conn, 999))
+
+       tx = get_recent_transactions(conn, 1)
+       print(f"get_recent_transactions(1) -> {len(tx)}
+   rows:")
+       for t in tx:
+           print("  ", t)
+
+       bd = get_category_breakdown(conn, 1)
+       print("get_category_breakdown(1):")
+       for r in bd:
+           print("  ", r)
+       print("sum pcts =", sum(r["pct"] for r in bd))
+
+       print("\nget_category_breakdown(999):")
+       bd0 = get_category_breakdown(conn, 999)
+       for r in bd0:
+           print("  ", r)
+       print("sum pcts =", sum(r["pct"] for r in bd0))
+       print("len =", len(bd0), "  (should be 7)")
+   finally:
+
+       print("\nget_category_breakdown(999):")
+       bd0 = get_category_breakdown(conn, 999)
+       for r in bd0:
+           print("  ", r)
+       print("sum pcts =", sum(r["pct"] for r in bd0))
+       print("len =", len(bd0), "  (should be 7)")
+   finally:
+  wiring them in:
+
+● Bash(python << 'EOF'
+      # Smoke test the helpers in isolation. Uses the live DB
+      (idempotent — seed_db short-circuits).…)
+  ⎿  get_user_by_id(1): {'name': 'Demo User', 'email': 'de
+     mo@spendly.com', 'member_since': '2026-07-02 06:23:35
+     '}
+     … +35 lines (ctrl+o to expand)
+
+● All four helpers return the right shapes. Two observations
+  from the smoke test:
+
+  - get_summary_stats(999) returns the em-dash top_category
+  correctly (the � is just my terminal's encoding for — — the
+  actual string is the em-dash).
+  - get_recent_transactions returns 8 rows ordered newest-first
+  by (date DESC, id DESC) ✅.
+  - get_category_breakdown(1) returns 7 rows summing to exactly
+  100 ✅ (Bills 29, Shopping 25, Transport 15, Food 12, Health
+  11, Entertainment 5, Other 3 — and the algorithm absorbed
+  the 1-over remainder by lowering Bills from 30 to 29).
+  - get_category_breakdown(999) returns 7 categories all at 0%
+  — exactly as required.
+
+  Helpers are good. Marking task 4 done, starting task 5
+  (refactor app.py):
+
+● Update(app.py)
+  ⎿  Added 6 lines
+       6  from werkzeug.security import check_password_h
+          ash, generate_password_hash
+       7  
+       8  from database.db import get_db, init_db, seed_
+          db
+       9 +from database.queries import (                
+      10 +    get_category_breakdown,                   
+      11 +    get_recent_transactions,                  
+      12 +    get_summary_stats,                        
+      13 +    get_user_by_id,                           
+      14 +)                                             
+      15  
+      16  app = Flask(__name__)
+      17  # Flask `session` requires a secret_key. Read 
+          from the environment so a
+
+● Now refactor the profile() view. Replacing the entire route
+  body:
+
+● Update(app.py)
+  ⎿  Added 17 lines, removed 33 lines
+      169      if user_id is None:
+      170          return redirect(url_for("login"))
+      171  
+      172 +    # 2. One connection, shared by every help
+          +er. The route owns open/close;               
+      173 +    #    helpers in database.queries never ca
+          +ll get_db() or conn.close().                 
+      174      conn = get_db()
+      175      try:
+      174 -        # 2. User row by id (parameterised). 
+      175 -        user = conn.execute(                 
+      176 -            "SELECT id, name, email, created_
+          -at FROM users WHERE id = ?",                 
+      177 -            (user_id,),                      
+      178 -        ).fetchone()                         
+      176 +        user = get_user_by_id(conn, user_id) 
+      177  
+      178          # 3. Stale session — clear and bounce
+            to login (no 500).
+      179          if user is None:
+      180              session.clear()
+      181              return redirect(url_for("login"))
+      182  
+      185 -        # 4. Activity aggregates: count + tot
+          -al spent (one query).                        
+      186 -        totals_row = conn.execute(           
+      187 -            "SELECT COUNT(*), COALESCE(SUM(am
+          -ount), 0) "                                  
+      188 -            "FROM expenses WHERE user_id = ?"
+          -,                                            
+      189 -            (user_id,),                      
+      190 -        ).fetchone()                         
+      191 -        expense_count = totals_row[0]        
+      192 -        total_spent = totals_row[1]          
+      193 -                                             
+      194 -        # 5. Top category — highest sum first
+          -, ties broken alphabetically.                
+      195 -        top_row = conn.execute(              
+      196 -            "SELECT category, SUM(amount) AS 
+          -total "                                      
+      197 -            "FROM expenses WHERE user_id = ? 
+          -"                                            
+      198 -            "GROUP BY category "             
+      199 -            "ORDER BY total DESC, category AS
+          -C "                                          
+      200 -            "LIMIT 1",                       
+      201 -            (user_id,),                      
+      202 -        ).fetchone()                         
+      183 +        stats = get_summary_stats(conn, user_
+          +id)                                          
+      184 +        transactions = get_recent_transaction
+          +s(conn, user_id)   # limit=10 default        
+      185 +        categories = get_category_breakdown(c
+          +onn, user_id)                                
+      186      finally:
+      187          conn.close()
+      188  
+      206 -    # 6. Cross-platform date format: "9 July 
+          -2026" (no leading zero).                     
+      189 +    # 4. Cross-platform date format: "9 July 
+          +2026" (no leading zero).                     
+      190      #    %-d fails on Windows and #d fails on
+            Unix; using %d + lstrip("0")
+      191      #    works on every platform.
+      192      member_since = (
+      210 -        datetime.strptime(user["created_at"],
+          - "%Y-%m-%d %H:%M:%S")                        
+      193 +        datetime.strptime(user["member_since"
+          +], "%Y-%m-%d %H:%M:%S")                      
+      194          .strftime("%d %B %Y")
+      195          .lstrip("0")
+      196      )
+      197  
+      215 -    # 7. Top category as a display string ("—
+          -" when the user has none).                   
+      216 -    top_category = top_row["category"] if top
+          -_row is not None else "—"                    
+      217 -                                             
+      218 -    # 8. Render.                             
+      198 +    # 5. Render. The template uses user["name
+          +"] / user["email"] for the                   
+      199 +    #    account header; recent_transactions 
+          +and category_breakdown feed                  
+      200 +    #    the new "Recent expenses" and "Spend
+          +ing by category" sections.                   
+      201      return render_template(
+      202          "profile.html",
+      221 -        user=user,                           
+      203 +        user={"name": user["name"], "email": 
+          +user["email"]},                              
+      204          member_since=member_since,
+      223 -        expense_count=expense_count,         
+      224 -        total_spent=total_spent,             
+      225 -        top_category=top_category,           
+      205 +        expense_count=stats["transaction_coun
+          +t"],                                         
+      206 +        total_spent=stats["total_spent"],    
+      207 +        top_category=stats["top_category"],  
+      208 +        recent_transactions=transactions,    
+      209 +        category_breakdown=categories,       
+      210      )
+      211  
+      212  
+
+● Quick syntax check on the refactored app.py:
+
+● Bash(python -c "import ast; ast.parse(open('app.py',
+      encoding='utf-8').read()); print('app.py parses
+      cleanly')")
+  ⎿  app.py parses cleanly
+
+✻ 429 you (patelumang512200… · Retrying in 14s · attempt 9/10
+  ⎿  ◼ Refactor app.py /profile to use helpers
+     ◻ Create tests/test_backend_connection.py
+     ◻ Run tests and manual smoke check
+     ◻ Add category breakdown + recent transactions to…
+     ✔ Append .expense-table CSS to style.css
+      … +1 completed

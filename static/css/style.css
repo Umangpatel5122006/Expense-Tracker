@@ -779,10 +779,31 @@ a { color: inherit; text-decoration: none; }
 }
 
 .profile-header {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
     text-align: left;
     padding-bottom: 1.75rem;
     margin-bottom: 2rem;
     border-bottom: 1px solid var(--border-soft);
+}
+
+.profile-header-text { flex: 1; min-width: 0; }
+
+.profile-avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--paper);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-display);
+    font-size: 1.75rem;
+    line-height: 1;
+    flex-shrink: 0;
+    box-shadow: 0 2px 8px rgba(26, 71, 42, 0.15);
 }
 
 .profile-eyebrow {
@@ -885,12 +906,332 @@ a { color: inherit; text-decoration: none; }
     background: var(--border);
 }
 
+/* Activity stat tiles get a thin accent strip on the left so they
+   read as a row of cards rather than a neutral grid. Each tile picks
+   up the color of the category it represents where applicable. */
+.mock-stat {
+    background: var(--paper);
+    border: 1px solid var(--border-soft);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius-sm);
+    padding: 0.85rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.mock-stat:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+}
+
+.mock-stat:nth-child(1) { border-left-color: var(--accent); }
+.mock-stat:nth-child(2) { border-left-color: var(--accent-2); }
+.mock-stat:nth-child(3) { border-left-color: var(--cat-transport); }
+
+.mock-stat-label {
+    font-size: 0.78rem;
+    color: var(--ink-muted);
+    font-weight: 500;
+}
+
+.mock-stat-value {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    color: var(--ink);
+    line-height: 1.1;
+}
+
+.mock-stat-meta {
+    font-size: 0.75rem;
+    color: var(--ink-faint);
+}
+
+.mock-stat-meta-up { color: #16a34a; }
+.mock-stat-meta-down { color: #16a34a; }
+
 @media (max-width: 600px) {
     .profile-page { padding: 3rem 1rem 4rem; }
+    .profile-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+    }
     .profile-row {
         flex-direction: column;
         align-items: flex-start;
         gap: 0.25rem;
     }
     .profile-row-value { text-align: left; }
+}
+
+/* ------------------------------------------------------------------ */
+/* Recent expenses + category breakdown (Step 5)                      */
+/* ------------------------------------------------------------------ */
+
+/* Category color palette — restrained, on-brand, derived from the
+   existing accent tokens so the chart feels native to Spendly rather
+   than a generic rainbow. Each category gets a fill (for bars) and a
+   matching soft tint (for swatches and chips). */
+:root {
+    --cat-food:           #d97757;   /* warm terracotta */
+    --cat-food-soft:      #fbe9df;
+    --cat-transport:      #4a6fa5;   /* calm slate-blue */
+    --cat-transport-soft: #e4ebf4;
+    --cat-bills:          #1a472a;   /* deep green (existing accent) */
+    --cat-bills-soft:     #e8f0eb;
+    --cat-health:         #c0467e;   /* muted rose */
+    --cat-health-soft:    #f6e2ec;
+    --cat-entertainment:  #8b5cf6;   /* soft violet */
+    --cat-entertainment-soft: #ece5fb;
+    --cat-shopping:       #c17f24;   /* warm gold (existing accent-2) */
+    --cat-shopping-soft:  #fdf3e3;
+    --cat-other:          #6b6b6b;   /* neutral gray */
+    --cat-other-soft:     #eeebe4;
+}
+
+.expense-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.92rem;
+}
+
+.expense-table th,
+.expense-table td {
+    padding: 0.7rem 0.5rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border-soft);
+    vertical-align: top;
+}
+
+.expense-table th {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--ink-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--border);
+}
+
+.expense-table td.amount,
+.expense-table th.amount {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.expense-table tbody tr {
+    transition: background-color 0.15s ease;
+}
+
+.expense-table tbody tr:hover {
+    background: var(--paper);
+}
+
+.expense-table tbody tr:last-child td { border-bottom: none; }
+
+.profile-empty {
+    font-size: 0.9rem;
+    color: var(--ink-muted);
+    text-align: center;
+    padding: 1.5rem 0;
+    margin: 0;
+}
+
+.category-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.7rem 0;
+    border-bottom: 1px solid var(--border-soft);
+}
+
+.category-row:last-child { border-bottom: none; }
+
+.category-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    background: var(--cat-other);
+    flex-shrink: 0;
+}
+
+.category-row[data-cat="Food"]          .category-swatch { background: var(--cat-food); }
+.category-row[data-cat="Transport"]     .category-swatch { background: var(--cat-transport); }
+.category-row[data-cat="Bills"]         .category-swatch { background: var(--cat-bills); }
+.category-row[data-cat="Health"]        .category-swatch { background: var(--cat-health); }
+.category-row[data-cat="Entertainment"] .category-swatch { background: var(--cat-entertainment); }
+.category-row[data-cat="Shopping"]      .category-swatch { background: var(--cat-shopping); }
+.category-row[data-cat="Other"]         .category-swatch { background: var(--cat-other); }
+
+.category-name {
+    font-size: 0.95rem;
+    color: var(--ink);
+    font-weight: 500;
+}
+
+.category-pct {
+    font-size: 0.85rem;
+    color: var(--ink-muted);
+    font-variant-numeric: tabular-nums;
+    min-width: 2.5rem;
+    text-align: right;
+}
+
+.category-amount {
+    font-size: 0.95rem;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+    min-width: 6rem;
+    text-align: right;
+}
+
+/* Category chip — used in the recent-expenses table for the Category
+   column. Soft tint + colored dot matches the swatch in the breakdown. */
+.category-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--ink-soft);
+    background: var(--paper);
+    border: 1px solid var(--border-soft);
+    border-radius: 999px;
+    padding: 0.2rem 0.7rem 0.2rem 0.55rem;
+    white-space: nowrap;
+}
+
+.category-chip-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--cat-other);
+    flex-shrink: 0;
+}
+
+.category-chip[data-cat="Food"]          .category-chip-dot { background: var(--cat-food); }
+.category-chip[data-cat="Transport"]     .category-chip-dot { background: var(--cat-transport); }
+.category-chip[data-cat="Bills"]         .category-chip-dot { background: var(--cat-bills); }
+.category-chip[data-cat="Health"]        .category-chip-dot { background: var(--cat-health); }
+.category-chip[data-cat="Entertainment"] .category-chip-dot { background: var(--cat-entertainment); }
+.category-chip[data-cat="Shopping"]      .category-chip-dot { background: var(--cat-shopping); }
+.category-chip[data-cat="Other"]         .category-chip-dot { background: var(--cat-other); }
+
+.profile-section-meta {
+    display: inline-block;
+    margin-left: 0.6rem;
+    font-family: var(--font-body);
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--ink-muted);
+    text-transform: none;
+    letter-spacing: 0;
+    vertical-align: middle;
+}
+
+/* ------------------------------------------------------------------ */
+/* Category distribution chart (Step 6)                               */
+/* ------------------------------------------------------------------ */
+
+.category-chart {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;             /* 2px-on-8px track spacing equivalent */
+}
+
+.chart-row {
+    display: grid;
+    grid-template-columns: 1.75rem 7rem 1fr 2.5rem;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 0.45rem 0.5rem;
+    border-radius: var(--radius-sm);
+    cursor: default;
+    transition: background-color 0.15s ease, transform 0.15s ease;
+    outline: none;
+}
+
+.chart-row:hover,
+.chart-row:focus-visible {
+    background-color: var(--paper);
+}
+
+.chart-row:focus-visible {
+    box-shadow: 0 0 0 2px var(--accent);
+}
+
+.chart-row-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    background: var(--cat-other);
+    flex-shrink: 0;
+    justify-self: center;
+}
+
+/* Per-category bar fill — drops the previous monochromatic scheme in
+   favor of a distinct, restrained color per category that matches the
+   swatch in the breakdown list. */
+.chart-row[data-cat="Food"]          .chart-row-swatch,
+.chart-row[data-cat="Food"]          .chart-bar-fill { fill: var(--cat-food); }
+.chart-row[data-cat="Transport"]     .chart-row-swatch,
+.chart-row[data-cat="Transport"]     .chart-bar-fill { fill: var(--cat-transport); }
+.chart-row[data-cat="Bills"]         .chart-row-swatch,
+.chart-row[data-cat="Bills"]         .chart-bar-fill { fill: var(--cat-bills); }
+.chart-row[data-cat="Health"]        .chart-row-swatch,
+.chart-row[data-cat="Health"]        .chart-bar-fill { fill: var(--cat-health); }
+.chart-row[data-cat="Entertainment"] .chart-row-swatch,
+.chart-row[data-cat="Entertainment"] .chart-bar-fill { fill: var(--cat-entertainment); }
+.chart-row[data-cat="Shopping"]      .chart-row-swatch,
+.chart-row[data-cat="Shopping"]      .chart-bar-fill { fill: var(--cat-shopping); }
+.chart-row[data-cat="Other"]         .chart-row-swatch,
+.chart-row[data-cat="Other"]         .chart-bar-fill { fill: var(--cat-other); }
+
+.chart-row-label {
+    font-size: 0.92rem;
+    color: var(--ink);
+    font-weight: 500;
+}
+
+.chart-row-pct {
+    font-size: 0.85rem;
+    color: var(--ink-muted);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.chart-bar {
+    width: 100%;
+    height: 10px;
+    display: block;
+}
+
+.chart-bar-track {
+    fill: var(--border-soft);
+}
+
+.chart-bar-fill {
+    fill: var(--cat-other);   /* default; overridden per-category above */
+    transition: width 0.6s ease;
+}
+
+.chart-tooltip {
+    position: absolute;
+    z-index: 50;
+    background: var(--ink);
+    color: var(--paper);
+    font-size: 0.78rem;
+    font-weight: 500;
+    padding: 0.4rem 0.7rem;
+    border-radius: var(--radius-sm);
+    pointer-events: none;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+    white-space: nowrap;
+}
+
+.chart-tooltip[hidden] {
+    display: none;
 }

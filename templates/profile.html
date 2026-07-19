@@ -8,9 +8,12 @@
     <div class="profile-inner">
 
         <div class="profile-header">
-            <div class="profile-eyebrow">● Signed in as {{ user["email"] }}</div>
-            <h1 class="profile-title">{{ user["name"] }}</h1>
-            <p class="profile-subtitle">Manage your account and view your spending summary.</p>
+            <div class="profile-avatar" aria-hidden="true">{{ user["name"][0] | upper }}</div>
+            <div class="profile-header-text">
+                <div class="profile-eyebrow">● Signed in as {{ user["email"] }}</div>
+                <h1 class="profile-title">{{ user["name"] }}</h1>
+                <p class="profile-subtitle">Manage your account and view your spending summary.</p>
+            </div>
         </div>
 
         <div class="profile-section">
@@ -53,15 +56,105 @@
         </div>
 
         <div class="profile-section">
+            <h2 class="profile-section-title">Spending by category</h2>
+            <div class="profile-card">
+                {% for row in category_breakdown %}
+                <div class="category-row" data-cat="{{ row.name }}">
+                    <span class="category-swatch" aria-hidden="true"></span>
+                    <span class="category-name">{{ row.name }}</span>
+                    <span class="category-pct">{{ row.pct }}%</span>
+                    <span class="category-amount">₹{{ "{:,.2f}".format(row.amount) }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        {% set has_spend = category_breakdown | sum(attribute='pct') > 0 -%}
+        {% if has_spend -%}
+        <div class="profile-section">
+            <h2 class="profile-section-title">
+                Distribution
+                <span class="profile-section-meta">by share of spend</span>
+            </h2>
+            <div class="profile-card">
+                <div class="category-chart" role="list">
+                    {%- for row in category_breakdown -%}
+                        {%- if row.pct > 0 %}
+                    <div class="chart-row{% if loop.first %} chart-row-top{% endif %}"
+                         role="listitem"
+                         tabindex="0"
+                         data-cat="{{ row.name }}"
+                         aria-label="{{ row.name }}: {{ row.pct }} percent, Rs {{ '{:,.2f}'.format(row.amount) }}">
+                        <span class="chart-row-swatch" aria-hidden="true"></span>
+                        <span class="chart-row-label">{{ row.name }}</span>
+                        <svg class="chart-bar" viewBox="0 0 100 10"
+                             preserveAspectRatio="none"
+                             aria-hidden="true">
+                            <rect class="chart-bar-track" x="0" y="0" width="100" height="10" rx="5" />
+                            <rect class="chart-bar-fill"
+                                  x="0" y="0"
+                                  width="{{ row.pct }}" height="10"
+                                  rx="5" />
+                        </svg>
+                        <span class="chart-row-pct">{{ row.pct }}%</span>
+                    </div>
+                        {%- endif -%}
+                    {%- endfor %}
+                </div>
+            </div>
+        </div>
+        {%- endif %}
+
+        <div class="profile-section">
+            <h2 class="profile-section-title">
+                Recent expenses
+                <span class="profile-section-meta">Last 10</span>
+            </h2>
+            <div class="profile-card">
+                {% if recent_transactions %}
+                <table class="expense-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Category</th>
+                            <th>Description</th>
+                            <th class="amount">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for tx in recent_transactions %}
+                        <tr>
+                            <td>{{ tx.date }}</td>
+                            <td>
+                                <span class="category-chip" data-cat="{{ tx.category }}">
+                                    <span class="category-chip-dot" aria-hidden="true"></span>
+                                    {{ tx.category }}
+                                </span>
+                            </td>
+                            <td>
+                                {% if tx.description and tx.description.strip() %}
+                                    {{ tx.description }}
+                                {% else %}
+                                    &mdash;
+                                {% endif %}
+                            </td>
+                            <td class="amount">₹{{ "{:,.2f}".format(tx.amount) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="profile-empty">
+                    No expenses yet. Add your first one to start tracking your spending.
+                </p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="profile-section">
             <p class="profile-note">
                 Coming soon: edit your name, email, and password.
             </p>
-            <div class="profile-actions">
-                <button type="button" class="btn-primary" disabled
-                        aria-disabled="true" title="Available in a later step">
-                    View expenses
-                </button>
-            </div>
         </div>
 
     </div>
