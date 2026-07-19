@@ -8,9 +8,12 @@
     <div class="profile-inner">
 
         <div class="profile-header">
-            <div class="profile-eyebrow">● Signed in as {{ user["email"] }}</div>
-            <h1 class="profile-title">{{ user["name"] }}</h1>
-            <p class="profile-subtitle">Manage your account and view your spending summary.</p>
+            <div class="profile-avatar" aria-hidden="true">{{ user["name"][0] | upper }}</div>
+            <div class="profile-header-text">
+                <div class="profile-eyebrow">● Signed in as {{ user["email"] }}</div>
+                <h1 class="profile-title">{{ user["name"] }}</h1>
+                <p class="profile-subtitle">Manage your account and view your spending summary.</p>
+            </div>
         </div>
 
         <div class="profile-section">
@@ -56,7 +59,8 @@
             <h2 class="profile-section-title">Spending by category</h2>
             <div class="profile-card">
                 {% for row in category_breakdown %}
-                <div class="category-row">
+                <div class="category-row" data-cat="{{ row.name }}">
+                    <span class="category-swatch" aria-hidden="true"></span>
                     <span class="category-name">{{ row.name }}</span>
                     <span class="category-pct">{{ row.pct }}%</span>
                     <span class="category-amount">₹{{ "{:,.2f}".format(row.amount) }}</span>
@@ -79,16 +83,18 @@
                     <div class="chart-row{% if loop.first %} chart-row-top{% endif %}"
                          role="listitem"
                          tabindex="0"
+                         data-cat="{{ row.name }}"
                          aria-label="{{ row.name }}: {{ row.pct }} percent, Rs {{ '{:,.2f}'.format(row.amount) }}">
+                        <span class="chart-row-swatch" aria-hidden="true"></span>
                         <span class="chart-row-label">{{ row.name }}</span>
-                        <svg class="chart-bar" viewBox="0 0 100 8"
+                        <svg class="chart-bar" viewBox="0 0 100 10"
                              preserveAspectRatio="none"
                              aria-hidden="true">
-                            <rect class="chart-bar-track" x="0" y="0" width="100" height="8" rx="4" />
+                            <rect class="chart-bar-track" x="0" y="0" width="100" height="10" rx="5" />
                             <rect class="chart-bar-fill"
                                   x="0" y="0"
-                                  width="{{ row.pct }}" height="8"
-                                  rx="4" />
+                                  width="{{ row.pct }}" height="10"
+                                  rx="5" />
                         </svg>
                         <span class="chart-row-pct">{{ row.pct }}%</span>
                     </div>
@@ -119,7 +125,12 @@
                         {% for tx in recent_transactions %}
                         <tr>
                             <td>{{ tx.date }}</td>
-                            <td>{{ tx.category }}</td>
+                            <td>
+                                <span class="category-chip" data-cat="{{ tx.category }}">
+                                    <span class="category-chip-dot" aria-hidden="true"></span>
+                                    {{ tx.category }}
+                                </span>
+                            </td>
                             <td>
                                 {% if tx.description and tx.description.strip() %}
                                     {{ tx.description }}
