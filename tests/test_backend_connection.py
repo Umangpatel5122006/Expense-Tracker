@@ -220,6 +220,104 @@ def test_get_category_breakdown_rounding_remainder_bumped_to_largest(
 
 
 # --------------------------------------------------------------------- #
+# get_summary_stats — date-range filter (Step 6)                        #
+# --------------------------------------------------------------------- #
+
+def test_get_summary_stats_with_date_range(unit_conn):
+    # Fixture has 60 on 2026-06-30 (Food), 30 on 2026-06-29 (Transport),
+    # 10 on 2026-06-28 (Bills). Restricting to the 29th and 30th drops the
+    # 28th row.
+    stats = get_summary_stats(
+        unit_conn, 1, date_from="2026-06-29", date_to="2026-06-30"
+    )
+    assert stats["total_spent"] == 90.0
+    assert stats["transaction_count"] == 2
+    assert stats["top_category"] == "Food"
+
+
+def test_get_summary_stats_with_from_only(unit_conn):
+    # Only the 28th row is excluded (date < 2026-06-29).
+    stats = get_summary_stats(unit_conn, 1, date_from="2026-06-29")
+    assert stats["total_spent"] == 90.0
+    assert stats["transaction_count"] == 2
+    assert stats["top_category"] == "Food"
+
+
+def test_get_summary_stats_with_to_only(unit_conn):
+    # Only the 30th row is excluded (date > 2026-06-29).
+    stats = get_summary_stats(unit_conn, 1, date_to="2026-06-29")
+    assert stats["total_spent"] == 40.0
+    assert stats["transaction_count"] == 2
+    assert stats["top_category"] == "Transport"
+
+
+def test_get_summary_stats_with_empty_range(unit_conn):
+    # Future-dated filter excludes every fixture row.
+    stats = get_summary_stats(
+        unit_conn, 1, date_from="2027-01-01", date_to="2027-12-31"
+    )
+    assert stats["total_spent"] == 0.0
+    assert stats["transaction_count"] == 0
+    assert stats["top_category"] == "—"
+
+
+# --------------------------------------------------------------------- #
+# get_recent_transactions — date-range filter (Step 6)                  #
+# --------------------------------------------------------------------- #
+
+def test_get_recent_transactions_limit_applied_after_where(unit_conn):
+    """The LIMIT must cap the rows *inside* the filtered range, not
+    the 10 newest rows overall that happen to fall in the range."""
+    # Add 15 in-range rows on the same date.
+    unit_conn.executemany(
+        "INSERT INTO expenses (user_id, amount, category, date, description) "
+        "VALUES (?, ?, ?, ?, ?)",
+        [
+            (1, 1.0, "Other", "2026-06-15", f"in-range-{i}")
+            for i in range(15)
+        ],
+    )
+    unit_conn.commit()
+
+    tx = get_recent_transactions(
+        unit_conn,
+        1,
+        limit=10,
+        date_from="2026-06-01",
+        date_to="2026-06-20",
+    )
+    assert len(tx) == 10
+    # Every returned row must fall in the active range.
+    for row in tx:
+        assert "2026-06-01" <= row["date"] <= "2026-06-20"
+
+
+# --------------------------------------------------------------------- #
+# get_category_breakdown — date-range filter (Step 6)                   #
+# --------------------------------------------------------------------- #
+
+def test_get_category_breakdown_with_filter_sums_to_100(unit_conn):
+    bd = get_category_breakdown(
+        unit_conn, 1, date_from="2026-06-29", date_to="2026-06-30"
+    )
+    # All 7 categories are still returned; non-spend ones at 0% / 0.00.
+    assert len(bd) == len(CATEGORIES) == 7
+    assert sum(r["pct"] for r in bd) == 100
+    # 60 + 30 -> 67% / 33% (rounded). The other five categories at 0%.
+    assert [r["pct"] for r in bd] == [67, 33, 0, 0, 0, 0, 0]
+
+
+def test_get_category_breakdown_with_empty_filtered_range(unit_conn):
+    bd = get_category_breakdown(
+        unit_conn, 1, date_from="2027-01-01", date_to="2027-12-31"
+    )
+    assert len(bd) == len(CATEGORIES) == 7
+    assert all(r["amount"] == 0.0 for r in bd)
+    assert all(r["pct"] == 0 for r in bd)
+    assert sum(r["pct"] for r in bd) == 0
+
+
+# --------------------------------------------------------------------- #
 # Route: GET /profile                                                    #
 # --------------------------------------------------------------------- #
 
@@ -264,3 +362,157 @@ def test_profile_authenticated_renders_live_data(app_client):
     # Spending by category: all 7 categories rendered
     for cat in CATEGORIES:
         assert cat in body
+
+
+# --------------------------------------------------------------------- #
+# Route: GET /profile — date-range filter (Step 6)                     #
+# --------------------------------------------------------------------- #
+
+def _login_demo(client):
+    """Log in as the demo user; helper for the filter tests below."""
+    client.post(
+        "/login",
+        data={"email": "demo@spendly.com", "password": "demo123"},
+        follow_redirects=False,
+    )
+
+
+def test_profile_unauthenticated_with_query_string_still_redirects(app_client):
+    """A query string on /profile must not bypass the auth gate."""
+    resp = app_client.get(
+        "/profile?from=2026-07-01&to=2026-07-31", follow_redirects=False
+    )
+    assert resp.status_code == 302
+    assert "/login" in resp.headers["Location"]
+
+
+def test_profile_with_malformed_date_silently_dropped(app_client):
+    """Garbage in from/to must not 500; the page renders unfiltered."""
+    _login_demo(app_client)
+
+    # First, snapshot the unfiltered page.
+    unfiltered = app_client.get("/profile", follow_redirects=False).get_data(
+        as_text=True
+    )
+    assert ">8<" in unfiltered
+    assert "300.14" in unfiltered
+
+    # Now hit the page with a junk date. It must still render and the
+    # visible totals must match the unfiltered view.
+    resp = app_client.get(
+        "/profile?from=garbage&to=also-garbage", follow_redirects=False
+    )
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    # All-time totals and the "Last 10" (un-filtered) section title.
+    assert ">8<" in body
+    assert "300.14" in body
+    assert "Last 10</span>" in body
+    assert "all time" in body
+
+
+def test_profile_with_date_range_filter_reduces_totals(app_client):
+    """A from-bound past the 18-day-old row drops it from the totals."""
+    _login_demo(app_client)
+    # Seed dates are offset from today (2026-07-23 per system context) by
+    # 0, 2, 5, 7, 10, 14, 18, 25 days. A from-bound of 2026-07-10 drops
+    # the rows at -18 and -25 days. The filtered total_spent is therefore
+    # the full 300.14 minus those two rows (8.75 + 22.30 = 31.05) = 269.09.
+    resp = app_client.get(
+        "/profile?from=2026-07-10&to=2026-07-23", follow_redirects=False
+    )
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    # The all-time 300.14 must NOT appear; the filtered 269.09 must.
+    assert "300.14" not in body
+    assert "269.09" in body
+    # Section title reflects the active filter.
+    assert "Last 10 in range" in body
+
+
+def test_profile_with_swapped_bounds(app_client):
+    """?from=A&to=B with A > B must render the same as the sorted form."""
+    _login_demo(app_client)
+    sorted_resp = app_client.get(
+        "/profile?from=2026-07-10&to=2026-07-23", follow_redirects=False
+    )
+    swapped_resp = app_client.get(
+        "/profile?from=2026-07-23&to=2026-07-10", follow_redirects=False
+    )
+    assert sorted_resp.status_code == 200
+    assert swapped_resp.status_code == 200
+    sorted_body = sorted_resp.get_data(as_text=True)
+    swapped_body = swapped_resp.get_data(as_text=True)
+    # Same filtered total appears in both.
+    assert "269.09" in sorted_body
+    assert "269.09" in swapped_body
+    # The "300.14" all-time total must not appear in either.
+    assert "300.14" not in sorted_body
+    assert "300.14" not in swapped_body
+
+
+def test_profile_with_empty_filtered_range_shows_zero_tiles(app_client):
+    """A future-dated range that excludes every row → 0 / 0.00 / —."""
+    _login_demo(app_client)
+    resp = app_client.get(
+        "/profile?from=2030-01-01&to=2030-12-31", follow_redirects=False
+    )
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    # Activity tiles: count, total, top-category.
+    assert ">0<" in body
+    assert "₹0.00" in body
+    assert ">—<" in body
+    # Section title and empty-state copy.
+    assert "Last 10 in range" in body
+    assert "No expenses yet" in body
+    # Spending by category: all 7 categories at 0% / 0.00.
+    for cat in CATEGORIES:
+        assert cat in body
+    # Distribution is hidden (the {% if has_spend %} gate).
+    assert "Distribution" not in body
+    # The range label reflects the chosen dates.
+    assert "1 January 2030" in body
+
+
+def test_profile_filter_form_rendered_with_prefilled_values(app_client):
+    """The form has from/to date inputs pre-filled with the active range."""
+    _login_demo(app_client)
+    resp = app_client.get(
+        "/profile?from=2026-07-01&to=2026-07-31", follow_redirects=False
+    )
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    # Both date inputs present with pre-filled values.
+    assert 'name="from"' in body
+    assert 'name="to"' in body
+    assert 'type="date"' in body
+    assert 'value="2026-07-01"' in body
+    assert 'value="2026-07-31"' in body
+    # Submit button + clear link.
+    assert "Apply" in body
+    assert "Clear" in body
+
+
+def test_profile_range_label_changes_by_filter_shape(app_client):
+    """all time / since / until / <from> – <to> labels per filter shape."""
+    _login_demo(app_client)
+
+    no_filter = app_client.get("/profile").get_data(as_text=True)
+    assert "all time" in no_filter
+
+    from_only = app_client.get(
+        "/profile?from=2026-07-15"
+    ).get_data(as_text=True)
+    assert "since 15 July 2026" in from_only
+
+    to_only = app_client.get(
+        "/profile?to=2026-07-10"
+    ).get_data(as_text=True)
+    assert "until 10 July 2026" in to_only
+
+    both = app_client.get(
+        "/profile?from=2026-07-01&to=2026-07-23"
+    ).get_data(as_text=True)
+    # En-dash U+2013 between the two dates.
+    assert "1 July 2026 – 23 July 2026" in both

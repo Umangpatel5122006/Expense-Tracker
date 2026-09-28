@@ -20,6 +20,52 @@ app.secret_key = os.environ.get("SPENDLY_SECRET_KEY", "dev-only-change-me")
 
 
 # ------------------------------------------------------------------ #
+# Date helpers — used by the /profile date-range filter (Step 6)     #
+# ------------------------------------------------------------------ #
+
+def _parse_iso_date(value: str | None) -> str | None:
+    """Return ``value`` if it parses as ``YYYY-MM-DD``, else ``None``.
+
+    A bad or missing value is treated as "no bound on this side" so a
+    hand-edited URL like ``?from=garbage`` cannot break the page.
+    """
+    if not value:
+        return None
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        return None
+    return value
+
+
+def _format_range_label(date_from: str | None, date_to: str | None) -> str:
+    """Return a human label for the active date range.
+
+    ``all time``        — neither bound set.
+    ``since <date>``    — only ``date_from`` set.
+    ``until <date>``    — only ``date_to`` set.
+    ``<from> – <to>``   — both set (en-dash, U+2013).
+
+    Dates render in the same cross-platform ``9 July 2026`` format
+    used for ``member_since`` (the ``%-d`` directive fails on Windows).
+    """
+    def fmt(value: str) -> str:
+        return (
+            datetime.strptime(value, "%Y-%m-%d")
+            .strftime("%d %B %Y")
+            .lstrip("0")
+        )
+
+    if date_from and date_to:
+        return f"{fmt(date_from)} – {fmt(date_to)}"
+    if date_from:
+        return f"since {fmt(date_from)}"
+    if date_to:
+        return f"until {fmt(date_to)}"
+    return "all time"
+
+
+# ------------------------------------------------------------------ #
 # Database bootstrap — runs once at import time                       #
 # ------------------------------------------------------------------ #
 # Ensure the schema exists and the demo data is in place before any
@@ -164,29 +210,47 @@ def logout():
 
 @app.route("/profile")
 def profile():
-    # 1. Auth gate — no DB work if not signed in.
+    # 1. Auth gate — no DB work if not signed in. Filter parsing happens
+    #    AFTER the redirect so an unauthenticated request with a query
+    #    string still goes straight to /login.
     user_id = session.get("user_id")
     if user_id is None:
         return redirect(url_for("login"))
 
-    # 2. One connection, shared by every helper. The route owns open/close;
+    # 2. Parse optional ?from=YYYY-MM-DD&to=YYYY-MM-DD query parameters.
+    #    Bad values are silently dropped (not 400) so a malformed link
+    #    in an email can't break the page.
+    date_from = _parse_iso_date(request.args.get("from"))
+    date_to = _parse_iso_date(request.args.get("to"))
+    if date_from and date_to and date_from > date_to:
+        # Backwards bounds are swapped, not rejected — the URL is the
+        # source of truth but the page must render sensibly either way.
+        date_from, date_to = date_to, date_from
+
+    # 3. One connection, shared by every helper. The route owns open/close;
     #    helpers in database.queries never call get_db() or conn.close().
     conn = get_db()
     try:
         user = get_user_by_id(conn, user_id)
 
-        # 3. Stale session — clear and bounce to login (no 500).
+        # 4. Stale session — clear and bounce to login (no 500).
         if user is None:
             session.clear()
             return redirect(url_for("login"))
 
-        stats = get_summary_stats(conn, user_id)
-        transactions = get_recent_transactions(conn, user_id)   # limit=10 default
-        categories = get_category_breakdown(conn, user_id)
+        stats = get_summary_stats(
+            conn, user_id, date_from=date_from, date_to=date_to
+        )
+        transactions = get_recent_transactions(
+            conn, user_id, date_from=date_from, date_to=date_to
+        )  # limit=10 default
+        categories = get_category_breakdown(
+            conn, user_id, date_from=date_from, date_to=date_to
+        )
     finally:
         conn.close()
 
-    # 4. Cross-platform date format: "9 July 2026" (no leading zero).
+    # 5. Cross-platform date format: "9 July 2026" (no leading zero).
     #    %-d fails on Windows and #d fails on Unix; using %d + lstrip("0")
     #    works on every platform.
     member_since = (
@@ -195,9 +259,13 @@ def profile():
         .lstrip("0")
     )
 
-    # 5. Render. The template uses user["name"] / user["email"] for the
+    # 6. Human-readable range label for the Activity stat-tile meta.
+    range_label = _format_range_label(date_from, date_to)
+
+    # 7. Render. The template uses user["name"] / user["email"] for the
     #    account header; recent_transactions and category_breakdown feed
-    #    the new "Recent expenses" and "Spending by category" sections.
+    #    the "Recent expenses" and "Spending by category" sections. The
+    #    filter form is rendered above the Recent expenses card.
     return render_template(
         "profile.html",
         user={"name": user["name"], "email": user["email"]},
@@ -207,6 +275,9 @@ def profile():
         top_category=stats["top_category"],
         recent_transactions=transactions,
         category_breakdown=categories,
+        date_from=date_from,
+        date_to=date_to,
+        range_label=range_label,
     )
 
 
