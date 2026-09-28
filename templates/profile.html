@@ -40,17 +40,17 @@
                 <div class="mock-stat">
                     <span class="mock-stat-label">Total expenses</span>
                     <span class="mock-stat-value">{{ expense_count }}</span>
-                    <span class="mock-stat-meta">all time</span>
+                    <span class="mock-stat-meta">{{ range_label }}</span>
                 </div>
                 <div class="mock-stat">
                     <span class="mock-stat-label">Total spent</span>
                     <span class="mock-stat-value">₹{{ "{:,.2f}".format(total_spent) }}</span>
-                    <span class="mock-stat-meta">all time</span>
+                    <span class="mock-stat-meta">{{ range_label }}</span>
                 </div>
                 <div class="mock-stat">
                     <span class="mock-stat-label">Top category</span>
                     <span class="mock-stat-value">{{ top_category }}</span>
-                    <span class="mock-stat-meta">by total spend</span>
+                    <span class="mock-stat-meta">{{ range_label }}</span>
                 </div>
             </div>
         </div>
@@ -108,8 +108,26 @@
         <div class="profile-section">
             <h2 class="profile-section-title">
                 Recent expenses
-                <span class="profile-section-meta">Last 10</span>
+                <span class="profile-section-meta">
+                    {% if date_from or date_to %}Last 10 in range{% else %}Last 10{% endif %}
+                </span>
             </h2>
+            <form class="profile-filter" method="get" action="{{ url_for('profile') }}">
+                <div class="profile-filter-fields">
+                    <label class="profile-filter-label">
+                        <span>From</span>
+                        <input class="form-input" type="date" name="from" value="{{ date_from or '' }}">
+                    </label>
+                    <label class="profile-filter-label">
+                        <span>To</span>
+                        <input class="form-input" type="date" name="to" value="{{ date_to or '' }}">
+                    </label>
+                </div>
+                <div class="profile-filter-actions">
+                    <button class="btn-submit" type="submit">Apply</button>
+                    <a class="profile-filter-clear" href="{{ url_for('profile') }}">Clear</a>
+                </div>
+            </form>
             <div class="profile-card">
                 {% if recent_transactions %}
                 <table class="expense-table">
