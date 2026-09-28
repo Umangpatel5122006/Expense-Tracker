@@ -23,19 +23,29 @@ app.secret_key = os.environ.get("SPENDLY_SECRET_KEY", "dev-only-change-me")
 # Date helpers — used by the /profile date-range filter (Step 6)     #
 # ------------------------------------------------------------------ #
 
-def _parse_iso_date(value: str | None) -> str | None:
-    """Return ``value`` if it parses as ``YYYY-MM-DD``, else ``None``.
+def parse_date_range(from_str: str | None, to_str: str | None) -> tuple[str | None, str | None]:
+    """Normalize and validate a date range.
 
-    A bad or missing value is treated as "no bound on this side" so a
-    hand-edited URL like ``?from=garbage`` cannot break the page.
+    Treats None or empty/whitespace strings as None.
+    Parses values as YYYY-MM-DD; if parsing fails, that bound is dropped.
+    Re-serializes parsed dates to ensure strict YYYY-MM-DD padding (e.g. 2026-7-5 -> 2026-07-05).
+    If both are present and from > to, they are swapped.
     """
-    if not value:
-        return None
-    try:
-        datetime.strptime(value, "%Y-%m-%d")
-    except ValueError:
-        return None
-    return value
+    def normalize(value: str | None) -> str | None:
+        if not value or not value.strip():
+            return None
+        try:
+            return datetime.strptime(value, "%Y-%m-%d").strftime("%Y-%m-%d")
+        except ValueError:
+            return None
+
+    date_from = normalize(from_str)
+    date_to = normalize(to_str)
+
+    if date_from and date_to and date_from > date_to:
+        date_from, date_to = date_to, date_from
+
+    return date_from, date_to
 
 
 def _format_range_label(date_from: str | None, date_to: str | None) -> str:
@@ -220,12 +230,7 @@ def profile():
     # 2. Parse optional ?from=YYYY-MM-DD&to=YYYY-MM-DD query parameters.
     #    Bad values are silently dropped (not 400) so a malformed link
     #    in an email can't break the page.
-    date_from = _parse_iso_date(request.args.get("from"))
-    date_to = _parse_iso_date(request.args.get("to"))
-    if date_from and date_to and date_from > date_to:
-        # Backwards bounds are swapped, not rejected — the URL is the
-        # source of truth but the page must render sensibly either way.
-        date_from, date_to = date_to, date_from
+    date_from, date_to = parse_date_range(request.args.get("from"), request.args.get("to"))
 
     # 3. One connection, shared by every helper. The route owns open/close;
     #    helpers in database.queries never call get_db() or conn.close().
@@ -278,6 +283,7 @@ def profile():
         date_from=date_from,
         date_to=date_to,
         range_label=range_label,
+        filter_active=bool(date_from or date_to),
     )
 
 
