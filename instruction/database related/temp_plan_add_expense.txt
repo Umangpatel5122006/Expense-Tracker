@@ -1,0 +1,56 @@
+ Implementation Plan: Add Expense (Step 07)
+
+ Context
+
+ The "Add Expense" feature allows authenticated users to record their spending. This is a core part of the Spendly roadmap, enabling the data collection necessary for the spending analysis seen on the profile and analytics pages.
+
+ Recommended Approach
+
+ I will implement a classic Flask form-handling pattern with a clear separation between routing/validation and database access.
+
+ 1. Database Layer (database/queries.py)
+
+ Centralize the SQL insertion logic to keep the route handlers clean.
+ - Implement add_expense(conn, user_id, amount, category, date, description) in database/queries.py.
+ - Use a parameterized INSERT INTO expenses query.
+
+ 2. Route Implementation (app.py)
+
+ Replace the placeholder /expenses/add route with a full GET/POST handler.
+ - GET /expenses/add:
+   - Auth gate: Redirect to /login if session.user_id is missing.
+   - Render add_expense.html, passing the CATEGORIES constant fromdatabase.db.
+ - POST /expenses/add:
+   - Auth gate: Redirect to /login.
+   - Validation:
+     - Amount: Positive number (float(amount) > 0).
+     - Category: Must be in database.db.CATEGORIES.
+     - Date: Valid YYYY-MM-DD format.
+   - Error Handling: Use a fail(msg) helper to re-render the form with errormessages and preserved input.
+   - Persistence: Use get_db() and the add_expense helper from queries.py.
+   - Success: Redirect to url_for('profile').
+
+ 3. UI/UX (templates/)
+
+ - templates/add_expense.html: Create a new template extending base.html.
+   - Include a form with amount (number), category (select dropdown), date(date picker), and description (text).
+   - Ensure it uses existing CSS variables for styling.
+ - templates/base.html: Add a link to "Add Expense" in the authenticated navigation section.
+
+ Critical Files
+
+ - database/queries.py: New add_expense helper.
+ - app.py: Implement GET/POST handlers for /expenses/add.
+ - templates/add_expense.html: New form template.
+ - templates/base.html: Updated navigation.
+
+ Verification Plan
+
+ 1. Auth Gate: Verify that visiting /expenses/add while logged out redirects to /login.
+ 2. Form Rendering: Log in and verify the "Add Expense" link works and the form renders with the correct categories.
+ 3. Validation Testing:
+    - Try submitting a negative amount $\rightarrow$ Error shown.
+    - Try submitting an empty date $\rightarrow$ Error shown.
+    - Try submitting a manipulated category (not in CATEGORIES) $\rightarrow$ Error shown.
+ 4. Successful Flow: Submit a valid expense $\rightarrow$ Verify redirect to/profile $\rightarrow$ Verify the new expense appears in the "Recent expenses" list.
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌

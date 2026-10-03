@@ -5,12 +5,13 @@ from datetime import datetime
 from flask import Flask, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from database.db import get_db, init_db, seed_db
+from database.db import get_db, init_db, seed_db, CATEGORIES
 from database.queries import (
     get_category_breakdown,
     get_recent_transactions,
     get_summary_stats,
     get_user_by_id,
+    add_expense as db_add_expense,
 )
 
 app = Flask(__name__)
@@ -295,9 +296,65 @@ def analytics():
     return render_template("analytics.html")
 
 
-@app.route("/expenses/add")
+@app.route("/expenses/add", methods=["GET", "POST"])
 def add_expense():
-    return "Add expense — coming in Step 7"
+    # Auth gate
+    user_id = session.get("user_id")
+    if user_id is None:
+        return redirect(url_for("login"))
+
+    if request.method == "GET":
+        return render_template(
+            "add_expense.html",
+            categories=CATEGORIES,
+            date=datetime.now().strftime("%Y-%m-%d"),
+        )
+
+    # POST ---------------------------------------------------------------
+    amount_raw = request.form.get("amount") or ""
+    category = request.form.get("category") or ""
+    date = request.form.get("date") or ""
+    description = (request.form.get("description") or "").strip()
+
+    def fail(msg):
+        return render_template(
+            "add_expense.html",
+            error=msg,
+            categories=CATEGORIES,
+            amount=amount_raw,
+            category=category,
+            date=date,
+            description=description,
+        ), 200
+
+    # --- validation ------------------------------------------------------
+    try:
+        amount = float(amount_raw)
+        if amount <= 0:
+            raise ValueError()
+    except ValueError:
+        return fail("Please enter a valid positive amount.")
+
+    if category not in CATEGORIES:
+        return fail("Please select a valid category.")
+
+    if not date:
+        return fail("Date is required.")
+    try:
+        datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        return fail("Please enter a valid date in YYYY-MM-DD format.")
+
+    # --- insert ---------------------------------------------------------
+    conn = get_db()
+    try:
+        db_add_expense(conn, user_id, amount, category, date, description)
+        conn.commit()
+    finally:
+        conn.close()
+
+    return redirect(url_for("profile"))
+
 
 
 @app.route("/expenses/<int:id>/edit")

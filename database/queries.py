@@ -1,4 +1,4 @@
-"""Reusable SQLite query helpers for the /profile view (Step 5 + Step 6).
+"""Reusable SQLite query helpers for the Spendly application.
 
 These helpers:
   - accept an already-open sqlite3 connection (the route owns the lifecycle),
@@ -6,15 +6,6 @@ These helpers:
   - never import Flask,
   - use parameterised SQL exclusively (`?` placeholders),
   - return plain dicts (not sqlite3.Row) so unit tests are easy to write.
-
-The /profile route is the only current consumer; future read-side views
-should reuse these helpers rather than duplicating SQL.
-
-Step 6 added optional ``date_from`` / ``date_to`` keyword arguments to the
-three read helpers (``get_user_by_id`` is not date-scoped). Both bounds
-are inclusive (``date >= ?`` / ``date <= ?``); either may be ``None`` to
-mean "no bound on that side". Values are passed through ``?`` placeholders
-— never interpolated into the SQL string.
 """
 
 from __future__ import annotations
@@ -29,7 +20,24 @@ __all__ = [
     "get_summary_stats",
     "get_recent_transactions",
     "get_category_breakdown",
+    "add_expense",
 ]
+
+
+# --------------------------------------------------------------------- #
+# Expenses (Write)                                                       #
+# --------------------------------------------------------------------- #
+
+def add_expense(conn: sqlite3.Connection, user_id: int, amount: float, category: str, date: str, description: str | None) -> int:
+    """Insert a new expense record for the given user.
+
+    Returns the ID of the newly created expense.
+    """
+    cursor = conn.execute(
+        "INSERT INTO expenses (user_id, amount, category, date, description) VALUES (?, ?, ?, ?, ?)",
+        (user_id, amount, category, date, description),
+    )
+    return cursor.lastrowid
 
 
 # --------------------------------------------------------------------- #
@@ -69,9 +77,7 @@ def get_summary_stats(
     """Return ``{total_spent, transaction_count, top_category}``.
 
     - ``total_spent`` is a float, ``0.0`` when the user has no expenses
-      in the (optional) active range.
     - ``transaction_count`` is an int, ``0`` when the user has no expenses
-      in the active range.
     - ``top_category`` is the category with the highest total spend for
       this user, ties broken alphabetically; the em-dash ``"—"`` when
       the user has no expenses in the active range.
