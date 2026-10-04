@@ -21,12 +21,47 @@ __all__ = [
     "get_recent_transactions",
     "get_category_breakdown",
     "add_expense",
+    "get_expense_by_id",
+    "update_expense",
 ]
 
 
-# --------------------------------------------------------------------- #
-# Expenses (Write)                                                       #
-# --------------------------------------------------------------------- #
+def get_expense_by_id(conn: sqlite3.Connection, expense_id: int, user_id: int) -> dict[str, Any] | None:
+    """Return a specific expense for the given user, or None if not found/owned."""
+    row = conn.execute(
+        "SELECT amount, category, date, description FROM expenses WHERE id = ? AND user_id = ?",
+        (expense_id, user_id),
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "amount": row["amount"],
+        "category": row["category"],
+        "date": row["date"],
+        "description": row["description"],
+    }
+
+
+def update_expense(
+    conn: sqlite3.Connection,
+    expense_id: int,
+    user_id: int,
+    *,
+    amount: float,
+    category: str,
+    date: str,
+    description: str | None,
+) -> bool:
+    """Update an existing expense record for the given user.
+
+    Returns True if the row was updated, False otherwise.
+    """
+    cursor = conn.execute(
+        "UPDATE expenses SET amount = ?, category = ?, date = ?, description = ? WHERE id = ? AND user_id = ?",
+        (amount, category, date, description, expense_id, user_id),
+    )
+    return cursor.rowcount > 0
+
 
 def add_expense(conn: sqlite3.Connection, user_id: int, amount: float, category: str, date: str, description: str | None) -> int:
     """Insert a new expense record for the given user.
@@ -154,13 +189,14 @@ def get_recent_transactions(
     where_sql = " AND ".join(where)
 
     rows = conn.execute(
-        f"SELECT date, description, category, amount "
+        f"SELECT id, date, description, category, amount "
         f"FROM expenses WHERE {where_sql} "
         f"ORDER BY date DESC, id DESC LIMIT ?",
         [*params, limit],
     ).fetchall()
     return [
         {
+            "id": r["id"],
             "date": r["date"],
             "description": r["description"],
             "category": r["category"],

@@ -137,11 +137,12 @@
                             <th>Category</th>
                             <th>Description</th>
                             <th class="amount">Amount</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for tx in recent_transactions %}
-                        <tr>
+                        <tr class="expense-row">
                             <td>{{ tx.date }}</td>
                             <td>
                                 <span class="category-chip" data-cat="{{ tx.category }}">
@@ -157,6 +158,9 @@
                                 {% endif %}
                             </td>
                             <td class="amount">₹{{ "{:,.2f}".format(tx.amount) }}</td>
+                            <td class="actions">
+                                <a href="{{ url_for('edit_expense', id=tx.id) }}" class="edit-link">Edit</a>
+                            </td>
                         </tr>
                         {% endfor %}
                     </tbody>

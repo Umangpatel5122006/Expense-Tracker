@@ -12,6 +12,8 @@ from database.queries import (
     get_summary_stats,
     get_user_by_id,
     add_expense as db_add_expense,
+    get_expense_by_id,
+    update_expense,
 )
 
 app = Flask(__name__)
@@ -23,6 +25,34 @@ app.secret_key = os.environ.get("SPENDLY_SECRET_KEY", "dev-only-change-me")
 # ------------------------------------------------------------------ #
 # Date helpers — used by the /profile date-range filter (Step 6)     #
 # ------------------------------------------------------------------ #
+
+def _validate_expense_data(amount_raw: str, category: str, date: str, description: str | None = None) -> tuple[float | None, str | None]:
+    """
+    Shared validation for adding and editing expenses.
+    Returns (validated_amount, error_message).
+    """
+    try:
+        amount = float(amount_raw)
+        if amount <= 0:
+            return None, "Please enter a valid positive amount."
+    except (ValueError, TypeError):
+        return None, "Please enter a valid positive amount."
+
+    if category not in CATEGORIES:
+        return None, "Please select a valid category."
+
+    if not date:
+        return None, "Date is required."
+    try:
+        datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        return None, "Please enter a valid date in YYYY-MM-DD format."
+
+    if description and len(description) > 500:
+        return None, "Description must be 500 characters or fewer."
+
+    return amount, None
+
 
 def parse_date_range(from_str: str | None, to_str: str | None) -> tuple[str | None, str | None]:
     """Normalize and validate a date range.
@@ -328,25 +358,13 @@ def add_expense():
         ), 200
 
     # --- validation ------------------------------------------------------
-    try:
-        amount = float(amount_raw)
-        if amount <= 0:
-            raise ValueError()
-    except ValueError:
-        return fail("Please enter a valid positive amount.")
-
-    if category not in CATEGORIES:
-        return fail("Please select a valid category.")
-
-    if not date:
-        return fail("Date is required.")
-    try:
-        datetime.strptime(date, "%Y-%m-%d")
-    except ValueError:
-        return fail("Please enter a valid date in YYYY-MM-DD format.")
+    amount, error = _validate_expense_data(amount_raw, category, date, description)
+    if error:
+        return fail(error)
 
     # --- insert ---------------------------------------------------------
     conn = get_db()
+
     try:
         db_add_expense(conn, user_id, amount, category, date, description)
         conn.commit()
@@ -357,9 +375,64 @@ def add_expense():
 
 
 
-@app.route("/expenses/<int:id>/edit")
+@app.route("/expenses/<int:id>/edit", methods=["GET", "POST"])
 def edit_expense(id):
-    return "Edit expense — coming in Step 8"
+    # Auth gate
+    user_id = session.get("user_id")
+    if user_id is None:
+        return redirect(url_for("login"))
+
+    conn = get_db()
+    try:
+        # 1. Verify ownership and existence
+        expense = get_expense_by_id(conn, id, user_id)
+        if expense is None:
+            return "Expense not found or unauthorized", 404
+
+        if request.method == "GET":
+            return render_template(
+                "edit_expense.html",
+                expense=expense,
+                categories=CATEGORIES,
+            )
+
+        # POST ---------------------------------------------------------------
+        amount_raw = request.form.get("amount") or ""
+        category = request.form.get("category") or ""
+        date = request.form.get("date") or ""
+        description = (request.form.get("description") or "").strip()
+
+        def fail(msg):
+            return render_template(
+                "edit_expense.html",
+                error=msg,
+                expense=expense,
+                categories=CATEGORIES,
+                amount=amount_raw,
+                category=category,
+                date=date,
+                description=description,
+            ), 200
+
+        # --- validation ---------------------------------------------------------
+        amount, error = _validate_expense_data(amount_raw, category, date, description)
+        if error:
+            return fail(error)
+
+        # --- update ---------------------------------------------------------
+        success = update_expense(conn, id, user_id, amount=amount, category=category, date=date, description=description if description else None)
+        if not success:
+            return "Update failed", 500
+        conn.commit()
+
+
+
+
+    finally:
+        conn.close()
+
+    return redirect(url_for("profile"))
+
 
 
 @app.route("/expenses/<int:id>/delete")
